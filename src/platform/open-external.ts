@@ -1,36 +1,38 @@
-// 用系统默认程序打开 URL 或路径
-// 主要就干一件事：服务起来之后把界面地址丢给浏览器，用户不用敲命令行
-// target 以后可能来自网页内容，所以必须校验：以 "-" 开头的会被 open / cmd start
-// 当成命令行参数，协议也得卡个白名单（javascript: 那种）
+/**
+ * 用系统默认程序打开 URL 或本地路径
+ * 主要用途：服务启动后将界面地址交给默认浏览器
+ * target 可能来自网页内容，因此必须校验：以 "-" 开头的字符串会被 open / cmd start
+ * 视为命令行参数，协议亦限定白名单
+ */
 
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 
 import { isWsl, platform, type PlatformName } from "./os.ts";
 
-/** 一个候选命令 */
+/** 候选启动命令 */
 export interface OpenCommand {
     readonly command: string;
     readonly args: readonly string[];
 }
 
-/** 只放这几个协议过去 */
+/** 允许的协议 */
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:", "file:"]);
 
-/** 绝对路径原样放行，其它必须是白名单协议的 URL。不合格直接抛，错误信息给日志看 */
+/** 绝对路径原样返回；其余须为白名单协议 URL。不合法时抛出异常 */
 function normalizeTarget(input: string): string {
     const target = input.trim();
     if (target === "") {
-        throw new Error("打开目标为空");
+        throw new Error("打开目标为空值");
     }
-    // 控制字符（包括换行）会把命令行搞乱
+    // 控制字符（含换行）会破坏命令行语义
     if (/[\u0000-\u001f\u007f]/.test(target)) {
         throw new Error("打开目标包含控制字符");
     }
     if (target.startsWith("-")) {
-        throw new Error(`打开目标不能以 "-" 开头（防止被当作命令行参数）：${target}`);
+        throw new Error(`打开目标不能以 "-" 开头：${target}`);
     }
-    // 本地路径。Windows 的 "C:\\..." 也走这一支
+    // 本地路径；Windows 的 "C:\\..." 亦归此类
     if (isAbsolute(target)) {
         return target;
     }
@@ -39,15 +41,15 @@ function normalizeTarget(input: string): string {
     try {
         parsed = new URL(target);
     } catch {
-        throw new Error(`既不是绝对路径也不是合法 URL：${target}`);
+        throw new Error(`目标既非绝对路径也非合法 URL：${target}`);
     }
     if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
-        throw new Error(`不允许通过系统程序打开的协议：${parsed.protocol}`);
+        throw new Error(`不允许的协议：${parsed.protocol}`);
     }
     return parsed.href;
 }
 
-/** 生成候选命令，按优先级排。单独导出是为了能测：不用换平台就能验三种系统的拼法 */
+/** 生成候选命令，按优先级排列。单独导出以便在任意平台测试三种系统的构造结果 */
 export function buildOpenCommands(
     rawTarget: string,
     targetPlatform: PlatformName = platform,
@@ -56,7 +58,7 @@ export function buildOpenCommands(
     const target = normalizeTarget(rawTarget);
 
     if (targetPlatform === "windows") {
-        // 第二个参数是 start 的"窗口标题"占位，少了它带引号的路径会被当成标题
+        // 第二个参数为 start 的窗口标题占位；缺失时带引号的路径会被当作标题
         return [{ command: "cmd", args: ["/c", "start", "", target] }];
     }
 
@@ -66,7 +68,7 @@ export function buildOpenCommands(
 
     const candidates: OpenCommand[] = [];
     if (inWsl) {
-        // WSL 里 xdg-open 经常不灵，先 wslview（wslu）再 explorer.exe
+        // WSL 下 xdg-open 常无效，优先 wslview（wslu），其次 explorer.exe
         candidates.push({ command: "wslview", args: [target] });
         candidates.push({ command: "explorer.exe", args: [target] });
     }
@@ -80,7 +82,7 @@ function spawnDetached(command: string, args: readonly string[]): Promise<void> 
         const child = spawn(command, [...args], { detached: true, stdio: "ignore" });
         child.once("error", reject);
         child.once("spawn", () => {
-            // 不等退出，浏览器和文件管理器都是长驻进程
+            // 不等待退出：浏览器与文件管理器均为长驻进程
             child.unref();
             resolve();
         });
@@ -88,8 +90,8 @@ function spawnDetached(command: string, args: readonly string[]): Promise<void> 
 }
 
 /**
- * 挨个候选试，全挂了才抛，错误里带上都试过谁
- * 只确认进程起来了，不管有没有真的打开。xdg-open 存在但执行失败会返回非 0，这儿不等也不看
+ * 依次尝试候选命令，全部失败时抛出聚合错误
+ * 仅确认进程启动成功；xdg-open 存在但执行失败会返回非 0，此处不等待也不检测
  */
 export async function openExternal(rawTarget: string): Promise<void> {
     const target = normalizeTarget(rawTarget);
@@ -105,5 +107,5 @@ export async function openExternal(rawTarget: string): Promise<void> {
         }
     }
 
-    throw new Error(`无法打开 ${target}；已尝试 ${failures.join("，")}`);
+    throw new Error(`无法打开 ${target}：已尝试 ${failures.join("；")}`);
 }

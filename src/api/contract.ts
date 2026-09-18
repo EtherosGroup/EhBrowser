@@ -1,7 +1,9 @@
-// 路由名 → 请求/响应类型，服务端和浏览器共用
-// 有了它两边就能各自推出 ApiRouteParams / ApiRequestBody / ApiRouteResponse，
-// 浏览器那边写成 request<K extends ApiRouteName>(name: K, ...) 就自动带类型，改字段两边一起报
-// routes.ts 末尾的断言盯着 ROUTES 别跟这儿走偏，别删
+/**
+ * 路由名到请求/响应类型的映射，服务端与浏览器共用
+ * 两端据此推导 ApiRouteParams / ApiRequestBody / ApiRouteResponse；
+ * 浏览器侧封装为 request<K extends ApiRouteName>(name: K, ...) 即可获得完整类型
+ * routes.ts 末尾的编译期断言用于校验与 ROUTES 的一致性
+ */
 
 import type {
     AccountCredentialsInput,
@@ -35,42 +37,42 @@ import type {
 } from "./dto/index.ts";
 import type { ApiResponse } from "./envelope.ts";
 
-/** 定位一个画廊。路径里就这两项，别的都在 query 或 body */
+/** 画廊定位；路径参数仅此两项，其余位于 query 或 body */
 export interface GalleryLocator {
     readonly gid: number;
     readonly token: string;
 }
 
 /**
- * 图片页定位。page 在路径里，不是 query（从 1 开始，跟上游一致）
- * 想挪去 query 的话 routes.ts 末尾那个断言会拦你
+ * 图片页定位。page 位于路径（从 1 开始，与上游一致），不在 query
+ * 若改至 query，routes.ts 末尾的断言会报错
  */
 export interface ImagePageLocator extends GalleryLocator {
     readonly page: number;
 }
 
-/** 带上 pageToken 服务端能少解析一次详情 */
+/** 携带 pageToken 可省去一次详情解析 */
 export interface ImagePageQuery {
     readonly pageToken?: string;
 }
 
-/** EventSource 加不了请求头，令牌只能塞 query 里 */
+/** EventSource 无法设置请求头，令牌只能经 query 传递 */
 export interface EventStreamQuery {
     readonly token?: string;
-    /** 重连时带上回 id，服务端可以补发。还没实现，先占着 */
+    /** 重连时携带上次事件 id，供服务端补发；尚未实现 */
     readonly lastEventId?: string;
 }
 
-/** 就一个布尔，懒得起名 */
+/** 单一布尔结果 */
 export interface RemovedResult {
     readonly removed: boolean;
 }
 
-/** params 走路径，query 是 GET 的查询串，body 是请求体 */
+/** params 位于路径，query 为 GET 查询串，body 为请求体 */
 export interface ApiRouteContract {
     // ── 系统 ───────────────────────────────────────────────
     "system.health": { response: ApiResponse<SystemHealth> };
-    /** SSE 返回的是事件流不是信封，所以 response 是 never。负载类型在 events.ts */
+    /** SSE 返回事件流而非信封，故 response 为 never；负载类型见 events.ts */
     "system.events": { query: EventStreamQuery; response: never };
 
     // ── 配置 ───────────────────────────────────────────────
@@ -139,19 +141,19 @@ export interface ApiRouteContract {
 
 export type ApiRouteName = keyof ApiRouteContract;
 
-/** 路径参数。没参数的路由是 Record<string, never> */
+/** 路径参数；无参数的路由为 Record<string, never> */
 export type ApiRouteParams<K extends ApiRouteName> = ApiRouteContract[K] extends {
     params: infer P;
 }
     ? P
     : Record<string, never>;
 
-/** 查询参数。没 query 就是 never */
+/** 查询参数；无 query 时为 never */
 export type ApiRouteQuery<K extends ApiRouteName> = ApiRouteContract[K] extends { query: infer Q }
     ? Q
     : never;
 
-/** 请求体。没 body 就是 never */
+/** 请求体；无 body 时为 never */
 export type ApiRequestBody<K extends ApiRouteName> = ApiRouteContract[K] extends { body: infer B }
     ? B
     : never;
@@ -163,7 +165,7 @@ export type ApiRouteResponse<K extends ApiRouteName> = ApiRouteContract[K] exten
     ? R
     : never;
 
-/** 这路由收不收 body */
+/** 该路由是否接收请求体 */
 export type ApiRouteHasBody<K extends ApiRouteName> = ApiRouteContract[K] extends { body: unknown }
     ? true
     : false;

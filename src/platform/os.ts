@@ -1,6 +1,8 @@
-// 平台判断。整个项目就这儿读 process.platform，别处别再写 "win32" / "darwin"
+/**
+ * 平台识别。本项目仅此模块读取 process.platform
+ */
 
-/** windows / macos / linux，比 Node 给的 win32、darwin 好认 */
+/** 人类可读的平台名，不使用 Node 的 win32 / darwin 原始值 */
 export type PlatformName = "windows" | "macos" | "linux";
 
 function detectPlatform(): PlatformName {
@@ -10,7 +12,7 @@ function detectPlatform(): PlatformName {
         case "darwin":
             return "macos";
         default:
-            // 其它 Unix 当 Linux 使，目录习惯和打开命令都通用
+            // 其余 Unix 按 Linux 处理，目录惯例与打开命令一致
             return "linux";
     }
 }
@@ -25,10 +27,10 @@ function detectWsl(): boolean {
     if (platform !== "linux") {
         return false;
     }
-    // WSL 会塞 WSL_DISTRO_NAME / WSL_INTEROP。这种环境下 xdg-open 基本打不开
-    // Windows 那边的浏览器，得换 wslview 或者 explorer.exe
+    // WSL 会注入 WSL_DISTRO_NAME / WSL_INTEROP。该环境下 xdg-open 通常无法打开
+    // Windows 侧浏览器，需改用 wslview 或 explorer.exe
     return Boolean(process.env["WSL_DISTRO_NAME"] ?? process.env["WSL_INTEROP"]);
 }
 
-/** 跑在 WSL 里的话，打开外部程序得换招 */
+/** 是否运行于 WSL，影响外部程序打开策略 */
 export const isWsl: boolean = detectWsl();

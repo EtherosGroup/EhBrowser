@@ -1,51 +1,54 @@
-/** 账号和鉴权 */
-// cookie 只进不出：下面这些 Input 类型只在请求方向出现，响应里永远是脱敏摘要
+/**
+ * 账号与鉴权
+ * Cookie 单向流入：下列 Input 类型仅出现在请求方向，响应中始终为脱敏摘要
+ */
+
 import type { EpochSeconds, EntityId, EhSite } from "./common.ts";
 
-/** 账号摘要，脱敏过的。展示够用，凭据一个都没有 */
+/** 账号摘要，已脱敏；不含任何凭据 */
 export interface AccountSummary {
     readonly id: EntityId;
     readonly label: string;
     readonly site: EhSite;
-    /** 现在用的是不是它 */
+    /** 是否为当前使用账号 */
     readonly active: boolean;
     readonly igneousUpdatedAt: EpochSeconds | null;
-    /** 配了 apiuid / apikey 没有，评分要用 */
+    /** 是否已配置 apiuid / apikey（评分使用） */
     readonly hasApiKey: boolean;
 }
 
-/** 鉴权总览。igneous 一个月左右就废，所以把年龄也吐出来，界面好提示重登 */
+/** 鉴权总览；igneous 有效期约一个月，故返回其年龄供界面提示重新登录 */
 export interface AuthStatus {
     readonly loggedIn: boolean;
     readonly activeAccount: AccountSummary | null;
     readonly accountCount: number;
-    /** igneous 放了多少天，不知道就 null */
+    /** igneous 已存在的天数；未知为 null */
     readonly igneousAgeDays: number | null;
-    /** 快过期或者已经过期了，该重登 */
+    /** 临近过期或已过期 */
     readonly igneousStale: boolean;
-    /** 里站通不通。没探过是 null */
+    /** 里站是否可达；未探测为 null */
     readonly exAccessible: boolean | null;
 }
 
 /**
- * cookie 三件套（+ 可选会话 id）
- * 字段名跟上游一样，别翻译，翻译了对接的时候就知道疼
+ * Cookie 三件套（含可选会话 id）
+ * 字段名与上游保持一致，避免转换引入歧义
  */
 export interface EhCookies {
     readonly ipbMemberId: string;
     readonly ipbPassHash: string;
-    /** 里站通行证，服务端签的。一个月左右废一次，变成 null 就换个节点重登 */
+    /** 里站通行证，由服务端签发，有效期约一个月；为空通常表示出口节点不适用 */
     readonly igneous: string;
     readonly ipbSessionId?: string;
 }
 
-/** uconfig.php 里那个，评分要用 */
+/** 来自 uconfig.php，评分接口使用 */
 export interface EhApiKey {
     readonly apiUid: string;
     readonly apiKey: string;
 }
 
-/** 只往服务端传。想把浏览器里已有的登录态导进来就用它 */
+/** 仅请求方向；用于导入浏览器中已有的登录态 */
 export interface AccountCredentialsInput {
     readonly label: string;
     readonly site: EhSite;
@@ -53,16 +56,16 @@ export interface AccountCredentialsInput {
     readonly apiKey?: EhApiKey;
 }
 
-/** 账号密码登录，cookie 服务端自己留着 */
+/** 账号密码登录；Cookie 由服务端保存 */
 export interface LoginInput {
     readonly username: string;
     readonly password: string;
     readonly site: EhSite;
-    /** 不给就用用户名 */
+    /** 缺省使用用户名 */
     readonly label?: string;
 }
 
-/** 改备注或者换凭据 */
+/** 更新备注或凭据 */
 export interface AccountUpdateInput {
     readonly label?: string;
     readonly cookies?: EhCookies;

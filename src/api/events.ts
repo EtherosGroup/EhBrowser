@@ -1,7 +1,8 @@
-// 服务端往浏览器推的事件（SSE）
-// 配置改了、账号换了、下载动了都在服务端发生，浏览器还可能开着好几个标签页，
-// 与其让每个页面轮询，不如服务端直接广播
-// 事件名和负载一一对应，广播端和监听端共用这张表，省得字符串写错
+/**
+ * 服务端到浏览器的事件推送（SSE）
+ * 配置变更、账号切换、下载进度均产生于服务端，浏览器可能同时开启多个页面；
+ * 由服务端广播替代各页面轮询。事件名与负载类型一一对应，两端共用同一张表
+ */
 
 import type { AuthStatus, ConfigSnapshot, DownloadTask, EpochSeconds } from "./dto/index.ts";
 
@@ -21,7 +22,7 @@ export interface ApiEventPayloads {
         readonly startedAt: EpochSeconds;
     };
     readonly "config.changed": {
-        /** 顺手把新快照带上，省一次 GET */
+        /** 附带新快照，省去一次 GET */
         readonly snapshot: ConfigSnapshot;
     };
     readonly "auth.changed": {
@@ -43,10 +44,10 @@ export interface ApiEvent<K extends ApiEventName = ApiEventName> {
     readonly id?: string;
 }
 
-/** 长时间没事件就发个心跳，不然浏览器会把连接判死 */
+/** 心跳间隔；长时间无事件时保活，避免浏览器断开连接 */
 export const API_EVENT_HEARTBEAT_MS = 15000;
 
-/** 广播前过一遍，名字写错了浏览器是收不到的 */
+/** 校验事件名；名称错误时浏览器无法接收 */
 export function isApiEventName(value: string): value is ApiEventName {
     return (API_EVENT_NAMES as readonly string[]).includes(value);
 }

@@ -1,6 +1,7 @@
-// src/api 的出口，要什么从这儿拿，别钻到具体文件里
-// 内部再怎么拆（比如 dto 又分文件）都不该影响两端
-// 依赖方向：这儿不碰 config / services / platform，纯契约
+/**
+ * src/api 出口。对外仅暴露本文件，内部文件结构可变
+ * 依赖方向：不引用 config / services / platform，属纯契约层
+ */
 
 export * from "./envelope.ts";
 export * from "./contract.ts";

@@ -1,13 +1,14 @@
-// 线上配置结构
-// 跟 src/config/schema.ts 那份内部类型故意分开：内部怎么重构不该动到对外契约，
-// 代理密码这类东西也永远不回传
+/**
+ * 配置的线上结构
+ * 与 src/config/schema.ts 的内部类型刻意分离：内部重构不影响对外契约，代理凭据等不回传
+ */
 
 import type { DeepPartial, EhSite } from "./common.ts";
 
-/** 这个值是谁定的。default < file < env < cli，跟解析优先级一致 */
+/** 取值来源；default < file < env < cli，与解析优先级一致 */
 export type SettingOrigin = "default" | "file" | "env" | "cli";
 
-/** 值 + 来源 */
+/** 取值与其来源 */
 export interface Effective<T> {
     readonly value: T;
     readonly origin: SettingOrigin;
@@ -18,12 +19,12 @@ export interface ProxySetting {
     readonly protocol: "http" | "socks5";
     readonly host: string;
     readonly port: number;
-    /** 配了认证没有。用户名密码不出服务端 */
+    /** 是否配置认证；凭据不回传 */
     readonly hasCredentials: boolean;
 }
 
 export interface NetworkSetting {
-    /** 序列请求之间的间隔。上游说连发 4～5 次就得歇 5 秒左右 */
+    /** 序列请求间隔；上游建议连续 4～5 次后等待约 5 秒 */
     readonly requestIntervalMs: number;
     readonly maxSequentialRequests: number;
     readonly requestTimeoutMs: number;
@@ -31,10 +32,10 @@ export interface NetworkSetting {
 }
 
 export interface ViewerSetting {
-    /** mpv 连播 / single 单页翻 */
+    /** mpv 连播 / single 单页翻页 */
     readonly mode: "mpv" | "single";
     readonly imageQuality: "org" | "res";
-    /** 提前抓几页 */
+    /** 预加载页数 */
     readonly preloadCount: number;
 }
 
@@ -42,18 +43,18 @@ export interface DownloadSetting {
     readonly directory: string;
     readonly keepArchive: boolean;
     readonly preferredResolution: string;
-    /** 服务端会往下削，别指望填多少就是多少 */
+    /** 服务端按安全范围下调 */
     readonly concurrency: number;
 }
 
 export interface UiSetting {
     readonly theme: "system" | "light" | "dark";
     readonly thumbnailSize: number;
-    /** 一页几条 */
+    /** 每页条目数 */
     readonly pageSize: number;
 }
 
-/** 完整配置。浏览器能看见的就这些 */
+/** 完整配置；浏览器可见部分 */
 export interface UserSetting {
     readonly schemaVersion: number;
     readonly locale: string;
@@ -64,25 +65,25 @@ export interface UserSetting {
     readonly ui: UiSetting;
 }
 
-/** 只带要改的，服务端负责深合并 */
+/** 仅包含需修改的字段，由服务端深合并 */
 export type UserSettingPatch = DeepPartial<UserSetting>;
 
-/** 生效值 + 每个字段的来源。origins 用点分路径当 key，界面直接按字段读 */
+/** 生效值与各字段来源；origins 以点分路径为键 */
 export interface ConfigSnapshot {
     readonly setting: UserSetting;
     readonly origins: Readonly<Record<string, SettingOrigin>>;
 }
 
-/** 数据目录，排错用。就是 platform/paths.ts 里那个 describePaths */
+/** 数据目录，用于诊断；对应 platform/paths.ts 的 describePaths */
 export interface PathsInfo {
     readonly configDir: string;
     readonly dataDir: string;
     readonly cacheDir: string;
-    /** override / env / portable-home / os-default */
+    /** 取值来源：override / env / portable-home / os-default */
     readonly sources: Readonly<Record<"configDir" | "dataDir" | "cacheDir", string>>;
 }
 
-/** true 会把账号凭据也打进包里，界面上必须再问一次 */
+/** true 时导出包包含账号凭据，界面需二次确认 */
 export interface ExportConfigInput {
     readonly includeSecrets: boolean;
 }
@@ -94,9 +95,9 @@ export interface ExportConfigResult {
 }
 
 export interface ImportConfigInput {
-    /** 浏览器读完文件回传过来的 */
+    /** 由浏览器读取文件后回传 */
     readonly content: string;
-    /** 覆盖不覆盖现有的账号 */
+    /** 是否覆盖现有账号凭据 */
     readonly overwriteSecrets: boolean;
 }
 
@@ -104,6 +105,6 @@ export interface ImportConfigResult {
     readonly schemaVersion: number;
     readonly migratedFrom: number | null;
     readonly accountsImported: number;
-    /** 覆盖前备份到哪了 */
+    /** 覆盖前的备份文件名 */
     readonly backupFile: string | null;
 }

@@ -1,5 +1,7 @@
-// dto 出口
-// 类型必须用 export type 重新导出，verbatimModuleSyntax 下写成 export 会弄出不存在的运行时绑定
+/**
+ * DTO 出口
+ * 类型须以 export type 重新导出：verbatimModuleSyntax 下写成 export 会留下不存在的运行时绑定
+ */
 
 export type {
     DeepPartial,

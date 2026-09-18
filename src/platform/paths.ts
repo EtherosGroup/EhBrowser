@@ -1,7 +1,9 @@
-// 数据目录解析
-// 三条根：config（配置 + cookie，丢了要重配）/ data（库、下载、日志）/ cache（缩略图，随便删）
-// 优先级从高到低：initPaths 传的覆盖 > EHBROWSER_*_DIR > EHBROWSER_HOME 便携模式 > 系统默认
-// 这儿只算路径不建目录。建目录是 ensureDirs 的事，别在 import 的时候就动手
+/**
+ * 数据目录解析
+ * 三条根目录：config（配置与 Cookie）、data（数据库、下载、日志）、cache（缩略图等可再生成数据）
+ * 优先级由高到低：initPaths 显式覆盖 > EHBROWSER_*_DIR > EHBROWSER_HOME 便携模式 > 系统默认
+ * 本模块仅解析路径，不创建目录；创建由 ensureDirs 负责
+ */
 
 import { chmod, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -9,24 +11,24 @@ import { isAbsolute, join, normalize } from "node:path";
 
 import { isWindows, platform } from "./os.ts";
 
-/** 各平台都叫这个 */
+/** 各平台统一使用的目录名 */
 export const APP_DIR_NAME = "ehbrowser";
 
-/** 三条根 */
+/** 三条根目录 */
 export interface PathRoots {
     readonly configDir: string;
     readonly dataDir: string;
     readonly cacheDir: string;
 }
 
-/** 显式覆盖，一般来自 CLI 参数。相对路径按当前 cwd 算 */
+/** 显式覆盖，通常来自 CLI 参数；相对路径按当前工作目录解析 */
 export interface PathOverrides {
     readonly configDir?: string;
     readonly dataDir?: string;
     readonly cacheDir?: string;
 }
 
-/** 这个值哪来的，排错的时候看 */
+/** 取值来源，用于诊断 */
 export type PathSource = "override" | "env" | "portable-home" | "os-default";
 
 export interface ResolvedPaths extends PathRoots {
@@ -34,12 +36,12 @@ export interface ResolvedPaths extends PathRoots {
 }
 
 const CACHE_SUBDIR = "cache";
-/** 0700，这棵树里有 cookie */
+/** 目录权限 0700，树下含 Cookie */
 const DIR_MODE = 0o700;
 
 let cached: ResolvedPaths | null = null;
 
-// 空串当没设，不然能拼出个空路径
+// 空字符串按未设置处理
 function readEnv(name: string): string | undefined {
     const raw = process.env[name];
     if (raw === undefined) {
@@ -49,7 +51,7 @@ function readEnv(name: string): string | undefined {
     return value === "" ? undefined : value;
 }
 
-// 认 ~ 和 ~/xxx，别的原样返回
+// 展开 ~ 与 ~/…，其余原样返回
 function expandTilde(input: string): string {
     if (input === "~") {
         return homedir();
@@ -72,13 +74,13 @@ function osDefaultRoots(): PathRoots {
         return {
             configDir: join(roaming, APP_DIR_NAME),
             dataDir: join(local, APP_DIR_NAME),
-            // Windows 没有单独的 cache 约定，跟 data 放一起
+            // Windows 无独立缓存约定，缓存置于 data 下
             cacheDir: join(local, APP_DIR_NAME, CACHE_SUBDIR),
         };
     }
 
     if (platform === "macos") {
-        // macOS 的规矩：配置和数据都在 Application Support，缓存单独扔 Caches
+        // macOS 惯例：配置与数据同放 Application Support，缓存单独置于 Caches
         const support = join(homedir(), "Library", "Application Support", APP_DIR_NAME);
         return {
             configDir: support,
@@ -87,8 +89,8 @@ function osDefaultRoots(): PathRoots {
         };
     }
 
-    // XDG。注意 XDG_*_HOME 经常压根没设（本机就没设），必须回退到 ~/.config 这些，
-    // 不然会拼出 "undefined/ehbrowser" 这种鬼路径
+    // 遵循 XDG。XDG_*_HOME 常常未设置，须回退到 ~/.config 等默认值，
+    // 否则会拼出 undefined/ehbrowser 这样的路径
     return {
         configDir: join(readEnv("XDG_CONFIG_HOME") ?? join(homedir(), ".config"), APP_DIR_NAME),
         dataDir: join(readEnv("XDG_DATA_HOME") ?? join(homedir(), ".local", "share"), APP_DIR_NAME),
@@ -105,7 +107,7 @@ function portableRoots(home: string): PathRoots {
     };
 }
 
-/** 算一遍并缓存。再调一次会拿最新的参数和环境变量重算 */
+/** 解析并缓存；重复调用会按最新参数与环境变量重新解析 */
 export function initPaths(overrides: PathOverrides = {}): ResolvedPaths {
     const portableHome = readEnv("EHBROWSER_HOME");
     const base: PathRoots =
@@ -145,19 +147,19 @@ export function initPaths(overrides: PathOverrides = {}): ResolvedPaths {
     return resolved;
 }
 
-/** 拿缓存的，没有就算一次 */
+/** 取缓存结果，未解析时先解析一次 */
 export function getPaths(): ResolvedPaths {
     return cached ?? initPaths();
 }
 
-/** 清缓存，测试用。下次 getPaths 会重新读环境变量 */
+/** 清空缓存，供测试使用；下次 getPaths 重新读取环境变量 */
 export function resetPaths(): void {
     cached = null;
 }
 
 /**
- * 建目录。POSIX 下顺手把已存在的也收回 0700（里面要放 cookie）
- * Windows 上 chmod 没用，跳过
+ * 创建三条根目录。POSIX 下将已存在目录的权限收紧至 0700（树下含 Cookie）
+ * Windows 上 chmod 无效，跳过
  */
 export async function ensureDirs(roots: PathRoots = getPaths()): Promise<void> {
     for (const dir of [roots.configDir, roots.dataDir, roots.cacheDir]) {
@@ -172,7 +174,7 @@ export async function ensureDirs(roots: PathRoots = getPaths()): Promise<void> {
     }
 }
 
-/** 打印三条根和各自的来源，排错用 */
+/** 打印三条根目录及其来源，用于诊断 */
 export function describePaths(roots: ResolvedPaths = getPaths()): string {
     const rows: Array<[string, string, PathSource]> = [
         ["config", roots.configDir, roots.sources.configDir],
