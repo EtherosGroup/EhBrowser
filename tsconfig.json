@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        /* Node runs the .ts files directly (native type stripping), so we never emit JS. */
+        "target": "esnext",
+        "lib": ["esnext"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "types": ["node"],
+        "rootDir": "src",
+        "noEmit": true,
+
+        /* Node's loader requires explicit extensions in relative imports: "./server.ts" */
+        "allowImportingTsExtensions": true,
+        /* Only syntax Node can strip is allowed (no enum / namespace / parameter properties). */
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    },
+    "include": ["src/**/*.ts"]
+}
