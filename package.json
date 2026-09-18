@@ -20,6 +20,7 @@
         "preview": "node ./dist/main.js",
         "prepublishOnly": "npm run build",
         "typecheck": "tsc --noEmit",
+        "config:path": "node ./src/config/cli.ts",
         "format": "oxfmt .",
         "format:check": "oxfmt --check ."
     },
