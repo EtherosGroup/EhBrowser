@@ -1,19 +1,7 @@
-/**
- * 数据目录解析。
- *
- * 三条根目录，按「敏感度 × 是否可重建」划分：
- *   config —— 用户可手改的配置 + 账号 cookie（唯一真相源，丢了要重配）
- *   data   —— 数据库、下载、日志（含可重建的索引）
- *   cache  —— 缩略图等（随时可删）
- *
- * 优先级（高 → 低）：
- *   1. initPaths() 传入的显式覆盖（给 CLI 参数用）
- *   2. 分项环境变量 EHBROWSER_CONFIG_DIR / EHBROWSER_DATA_DIR / EHBROWSER_CACHE_DIR
- *   3. 便携模式 EHBROWSER_HOME：三根收敛为 <HOME>/config、<HOME>/data、<HOME>/cache
- *   4. 操作系统默认位置（XDG / Library / APPDATA）
- *
- * 本模块只解析路径，不创建目录 —— 创建走 ensureDirs()，避免 import 时产生副作用。
- */
+// 数据目录解析
+// 三条根：config（配置 + cookie，丢了要重配）/ data（库、下载、日志）/ cache（缩略图，随便删）
+// 优先级从高到低：initPaths 传的覆盖 > EHBROWSER_*_DIR > EHBROWSER_HOME 便携模式 > 系统默认
+// 这儿只算路径不建目录。建目录是 ensureDirs 的事，别在 import 的时候就动手
 
 import { chmod, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -21,24 +9,24 @@ import { isAbsolute, join, normalize } from "node:path";
 
 import { isWindows, platform } from "./os.ts";
 
-/** 各平台统一使用的应用目录名。 */
+/** 各平台都叫这个 */
 export const APP_DIR_NAME = "ehbrowser";
 
-/** 三条根目录。 */
+/** 三条根 */
 export interface PathRoots {
     readonly configDir: string;
     readonly dataDir: string;
     readonly cacheDir: string;
 }
 
-/** 显式覆盖（通常来自 CLI 参数）。相对路径按当前工作目录解析。 */
+/** 显式覆盖，一般来自 CLI 参数。相对路径按当前 cwd 算 */
 export interface PathOverrides {
     readonly configDir?: string;
     readonly dataDir?: string;
     readonly cacheDir?: string;
 }
 
-/** 某个根目录最终取值的来源层，用于诊断。 */
+/** 这个值哪来的，排错的时候看 */
 export type PathSource = "override" | "env" | "portable-home" | "os-default";
 
 export interface ResolvedPaths extends PathRoots {
@@ -46,11 +34,12 @@ export interface ResolvedPaths extends PathRoots {
 }
 
 const CACHE_SUBDIR = "cache";
-/** 目录权限：这棵树里会放账号 cookie，一律 0700。 */
+/** 0700，这棵树里有 cookie */
 const DIR_MODE = 0o700;
 
 let cached: ResolvedPaths | null = null;
 
+// 空串当没设，不然能拼出个空路径
 function readEnv(name: string): string | undefined {
     const raw = process.env[name];
     if (raw === undefined) {
@@ -60,6 +49,7 @@ function readEnv(name: string): string | undefined {
     return value === "" ? undefined : value;
 }
 
+// 认 ~ 和 ~/xxx，别的原样返回
 function expandTilde(input: string): string {
     if (input === "~") {
         return homedir();
@@ -82,13 +72,13 @@ function osDefaultRoots(): PathRoots {
         return {
             configDir: join(roaming, APP_DIR_NAME),
             dataDir: join(local, APP_DIR_NAME),
-            // Windows 没有独立的 cache 约定，缓存跟在 data 下
+            // Windows 没有单独的 cache 约定，跟 data 放一起
             cacheDir: join(local, APP_DIR_NAME, CACHE_SUBDIR),
         };
     }
 
     if (platform === "macos") {
-        // macOS 惯例：配置与数据同在 Application Support，缓存单独放 Caches
+        // macOS 的规矩：配置和数据都在 Application Support，缓存单独扔 Caches
         const support = join(homedir(), "Library", "Application Support", APP_DIR_NAME);
         return {
             configDir: support,
@@ -97,8 +87,8 @@ function osDefaultRoots(): PathRoots {
         };
     }
 
-    // Linux 及其它 Unix：遵循 XDG。注意 XDG_*_HOME 经常没有被设置，
-    // 必须回退到 ~/.config、~/.local/share、~/.cache，否则会解析出 "undefined/..." 这类路径。
+    // XDG。注意 XDG_*_HOME 经常压根没设（本机就没设），必须回退到 ~/.config 这些，
+    // 不然会拼出 "undefined/ehbrowser" 这种鬼路径
     return {
         configDir: join(readEnv("XDG_CONFIG_HOME") ?? join(homedir(), ".config"), APP_DIR_NAME),
         dataDir: join(readEnv("XDG_DATA_HOME") ?? join(homedir(), ".local", "share"), APP_DIR_NAME),
@@ -115,7 +105,7 @@ function portableRoots(home: string): PathRoots {
     };
 }
 
-/** 解析三条根目录并缓存。重复调用会用最新的参数与环境变量重新解析。 */
+/** 算一遍并缓存。再调一次会拿最新的参数和环境变量重算 */
 export function initPaths(overrides: PathOverrides = {}): ResolvedPaths {
     const portableHome = readEnv("EHBROWSER_HOME");
     const base: PathRoots =
@@ -155,19 +145,19 @@ export function initPaths(overrides: PathOverrides = {}): ResolvedPaths {
     return resolved;
 }
 
-/** 取当前解析结果；若尚未解析过，按默认优先级解析一次。 */
+/** 拿缓存的，没有就算一次 */
 export function getPaths(): ResolvedPaths {
     return cached ?? initPaths();
 }
 
-/** 清空缓存（测试用：下次 getPaths() 会重新读取环境变量）。 */
+/** 清缓存，测试用。下次 getPaths 会重新读环境变量 */
 export function resetPaths(): void {
     cached = null;
 }
 
 /**
- * 创建三条根目录。POSIX 下会把已存在目录的权限收紧到 0700 ——
- * 因为这棵树里会放账号 cookie。Windows 上 chmod 基本无效，直接跳过。
+ * 建目录。POSIX 下顺手把已存在的也收回 0700（里面要放 cookie）
+ * Windows 上 chmod 没用，跳过
  */
 export async function ensureDirs(roots: PathRoots = getPaths()): Promise<void> {
     for (const dir of [roots.configDir, roots.dataDir, roots.cacheDir]) {
@@ -182,7 +172,7 @@ export async function ensureDirs(roots: PathRoots = getPaths()): Promise<void> {
     }
 }
 
-/** 供诊断命令使用：打印三条根目录及其来源层。 */
+/** 打印三条根和各自的来源，排错用 */
 export function describePaths(roots: ResolvedPaths = getPaths()): string {
     const rows: Array<[string, string, PathSource]> = [
         ["config", roots.configDir, roots.sources.configDir],
