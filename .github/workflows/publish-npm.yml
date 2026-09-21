@@ -1,0 +1,76 @@
+# 把包发到 npm
+#
+# 默认只支持手动触发的原因：这条流水线要能在 npmjs.com 上发布，需先完成一次授权设置（见下）。
+# 未设置之前，每次打标签都会失败一次，真正的失败反而难以分辨。设置完成后把上面的
+# workflow_dispatch 换成 tags: ["v*"]，即可与 release.yml 一起自动运行。
+#
+# 授权方式（二选一）：
+#   A. Trusted Publishing（推荐，无需长期密钥）
+#      npmjs.com -> 你的包 -> Settings -> Trusted Publisher -> GitHub Actions，
+#      填仓库 EtherosGroup/EhBrowser 与本文件名 publish-npm.yml。
+#      之后靠 OIDC 临时凭证发布，并自动带上 provenance 签名。
+#   B. 传统 Token：在 npmjs.com 生成 Automation Token，存成仓库密钥 NPM_TOKEN，
+#      并把下面的 NODE_AUTH_TOKEN 那行放开。
+#
+# 演练：在 Actions 页面手动触发时将 dry-run 保持为 true，只查看打包结果，不实际发布。
+
+name: publish-npm
+
+on:
+    workflow_dispatch:
+        inputs:
+            dry-run:
+                description: 只打包演练，不真正发布
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+    id-token: write # Trusted Publishing（OIDC）需要它
+
+jobs:
+    publish:
+        runs-on: ubuntu-24.04 # 固定镜像版本，构建环境不随 ubuntu-latest 迁移而变
+        timeout-minutes: 15
+        # 发版不能并发：同一时刻只让一个 run 碰 npm
+        concurrency:
+            group: publish-npm
+            cancel-in-progress: false
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24 # 自带的 npm 是 11.x，满足 Trusted Publishing 要求的 npm ≥ 11.5.1
+                  registry-url: https://registry.npmjs.org/
+                  cache: npm
+
+            - run: npm ci
+
+            - run: npm run typecheck
+
+            # 发布包内容取决于构建产物，而 dist/ 不在仓库里（由构建生成、已被 ignore）：
+            # 先构建再核对清单。npm pack 不触发 prepublishOnly，只有 npm publish 会触发，
+            # 因此不先构建时，这里看到的是一份只含 package.json / README / LICENSE 的空包。
+            - name: 构建并核对发布包内容
+              run: |
+                  set -euo pipefail
+                  npm run build
+                  # npm 把清单写在 stderr，因此需要 2>&1，否则 tee 拿到的是空文件
+                  npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+                  # 这两个文件必须进包，否则安装后得到的是一个无法运行的空包
+                  grep -q "dist/main.js" /tmp/pack.txt
+                  grep -q "dist/web/index.html" /tmp/pack.txt
+                  grep -E "total files|package size|unpacked size" /tmp/pack.txt
+
+            - name: 演练（不发布）
+              if: ${{ inputs.dry-run }}
+              # 同样会运行 prepublishOnly（再次构建），因此这里打印的是实际的内容清单
+              run: npm publish --dry-run
+
+            - name: 发布
+              if: ${{ !inputs.dry-run }}
+              # prepublishOnly 会自动运行 npm run build，因此这里不必再构建一次
+              run: npm publish --provenance --access public
+              # env:
+              #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # 用 Trusted Publishing 时不需要

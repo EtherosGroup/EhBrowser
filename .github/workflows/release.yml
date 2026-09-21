@@ -1,0 +1,89 @@
+# 推一个 v* 标签即发布一个 Release，并附上便携包
+#
+#   git tag -a v1.0.0 -m "EhBrowser 1.0.0"
+#   git push origin v1.0.0
+#
+# 不需要任何密钥：创建 Release 与上传附件使用仓库自带的 GITHUB_TOKEN。
+# 便携包由 scripts/portable.mjs 生成（内含 npm run build），内容与体积见 README「发布」一节。
+#
+# 手动触发（Actions 页面或 gh workflow run release.yml）走的是演练路径：
+# 同样构建与打包，但只把 zip 上传为 workflow artifact，不创建 Release、不打标签。
+# 因此正式发版之前可以先把产物下载下来核验一遍。
+
+name: release
+
+on:
+    push:
+        tags: ["v*"]
+    # 演练：只产出产物，不创建 Release
+    workflow_dispatch:
+
+permissions:
+    contents: read # 默认只读，创建 Release 的那一步单独提权
+
+# 同一个标签不并发运行两次：重复推送时后一次排队，避免两个 run 同时上传同一个附件
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    portable:
+        # 固定镜像版本：ubuntu-latest 会随 GitHub 的迁移计划更换，构建环境不应随之改变
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        permissions:
+            contents: write # 创建 Release、上传附件
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: npm
+
+            # 使用锁文件安装依赖：与作者本地一致，且能提前发现 package.json 与锁文件不一致
+            - run: npm ci
+
+            - run: npm run typecheck
+
+            # 标签与 package.json 里的版本必须一致，否则附件名与 npm 上那一版会互相矛盾
+            - name: 核对标签与 package.json 的版本
+              if: github.event_name == 'push'
+              run: |
+                  set -e
+                  tag="${{ github.ref_name }}"
+                  version="v$(node -p "require('./package.json').version")"
+                  if [ "$tag" != "$version" ]; then
+                    echo "标签是 $tag，但 package.json 里是 $version。"
+                    echo "先跑 npm version 改版本号并提交，再用同名标签。"
+                    exit 1
+                  fi
+                  echo "版本对得上：$tag"
+
+            # 内含 npm run build，产物为 release/EhBrowser-<版本>-portable.zip 与同名目录
+            - run: npm run release:portable
+
+            - name: 演练产物（手动触发时）
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/upload-artifact@v7
+              with:
+                  name: portable-${{ github.sha }}
+                  path: release/*-portable.zip
+                  if-no-files-found: error
+
+            - name: 建 Release 并附上便携包
+              if: github.event_name == 'push'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ github.ref_name }}
+              run: |
+                  set -e
+                  if gh release view "$TAG" >/dev/null 2>&1; then
+                    gh release upload "$TAG" release/*-portable.zip --clobber
+                  else
+                    gh release create "$TAG" \
+                      --title "$TAG" \
+                      --generate-notes \
+                      release/*-portable.zip
+                  fi
+                  gh release view "$TAG" --json url --jq .url
