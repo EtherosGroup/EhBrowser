@@ -1,0 +1,6 @@
+/node_modules/
+/dist/
+/.npm_cache/
+/.idea/
+/release/
+*.tgz
