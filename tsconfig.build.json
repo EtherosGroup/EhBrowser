@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+        /* 只用于发布/安装：把 src 编译成 dist，Node 才能从 node_modules 里运行。 */
+        "target": "esnext",
+        "lib": ["esnext"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "types": ["node"],
+        "rootDir": "src",
+        "outDir": "dist",
+        "noEmit": false,
+
+        /* 源码里写 "./server.ts"，编译时自动改写成 "./server.js"。 */
+        "allowImportingTsExtensions": true,
+        "rewriteRelativeImportExtensions": true,
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    },
+    "include": ["src/**/*.ts"],
+    /* 开发入口只是本地工具，不进发布包 */
+    "exclude": ["src/dev.ts"]
+}

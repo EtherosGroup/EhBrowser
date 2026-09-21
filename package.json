@@ -1,0 +1,63 @@
+{
+    "name": "ehbrowser",
+    "version": "1.0.0",
+    "description": "PC 端的 E-Hentai 浏览器：本地服务 + 浏览器界面，支持搜索、阅读、下载与本地库",
+    "keywords": [
+        "browser",
+        "downloader",
+        "e-hentai",
+        "exhentai",
+        "viewer"
+    ],
+    "homepage": "https://github.com/EtherosGroup/EhBrowser",
+    "bugs": {
+        "url": "https://github.com/EtherosGroup/EhBrowser/issues"
+    },
+    "license": "Apache-2.0",
+    "author": "EtherosGroup",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/EtherosGroup/EhBrowser.git"
+    },
+    "bin": {
+        "ehbrowser": "./dist/main.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "type": "module",
+    "main": "./src/main.ts",
+    "scripts": {
+        "start": "node ./src/main.ts",
+        "dev": "node ./src/dev.ts",
+        "build": "tsc -p tsconfig.build.json && vite build",
+        "preview": "node ./dist/main.js",
+        "prepublishOnly": "npm run build",
+        "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json",
+        "config:path": "node ./src/config/cli.ts",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "build:web": "vite build",
+        "dev:web": "vite build --watch",
+        "release:portable": "npm run build && node scripts/portable.mjs"
+    },
+    "dependencies": {
+        "undici": "^8.10.2"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.1",
+        "@types/nprogress": "^0.2.3",
+        "@vitejs/plugin-vue": "^6.0.9",
+        "nprogress": "^0.2.0",
+        "oxfmt": "^0.68.0",
+        "sass": "^1.104.1",
+        "typescript": "^7.0.2",
+        "vite": "^8.3.0",
+        "vue": "^3.5.43",
+        "vue-router": "^5.3.1",
+        "vue3-toastify": "^0.2.9"
+    },
+    "engines": {
+        "node": ">=22.18.0"
+    }
+}

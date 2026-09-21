@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        /* Node 原生擦除类型后直接运行 .ts，因此从不产出 JS。 */
+        "target": "esnext",
+        "lib": ["esnext"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "types": ["node"],
+        "rootDir": "src",
+        "noEmit": true,
+
+        /* Node 的加载器要求相对导入写全扩展名："./server.ts" */
+        "allowImportingTsExtensions": true,
+        /* 只允许 Node 能擦除的语法：不使用 enum、namespace 与参数属性。 */
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    },
+    "include": ["src/**/*.ts"]
+}

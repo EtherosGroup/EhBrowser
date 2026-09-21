@@ -1,0 +1,20 @@
+{
+    "compilerOptions": {
+        /* 前端与构建脚本：浏览器环境 + Vite 的模块解析 */
+        "target": "esnext",
+        "lib": ["esnext", "dom", "dom.iterable"],
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "types": ["node", "vite/client"],
+        "noEmit": true,
+        "allowImportingTsExtensions": true,
+        "erasableSyntaxOnly": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    },
+    "include": ["web/src/**/*.ts", "vite.config.ts"]
+}

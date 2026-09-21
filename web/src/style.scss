@@ -1,0 +1,178 @@
+:root {
+    color-scheme: dark;
+    --bg: #14161b;
+    --panel: #1c1f26;
+    --panel-2: #23262e;
+    --line: #2e323b;
+    --text: #d8dbe2;
+    --muted: #8b929e;
+    --accent: #6ea8fe;
+    --danger: #f2777a;
+    --ok: #7ec699;
+
+    /* 层级阶梯。浮层只从这里取值，避免各处写魔法数字而互相遮挡 */
+    --z-card: 10; /* 卡片浮起 */
+    --z-floating: 20; /* 固定在角落的入口 */
+    --z-overlay: 30; /* 覆盖卡片的悬浮预览 */
+    --z-player: 40; /* 播放器的网页全屏 */
+    --z-dialog: 50; /* 弹窗，层级高于播放器与悬浮预览 */
+
+    /* 图片占位层：一层底色加一条进度条，颜色只在这里定义 */
+    --placeholder-base: var(--panel-2);
+    --placeholder-track: color-mix(in srgb, var(--line) 70%, transparent);
+    --placeholder-fill: var(--accent);
+
+    /* 字号阶梯。基准为正文 1.2rem，其余每档加减 0.1rem，统一保留一位小数 */
+    --font-size-xs: 0.8rem; /* 最小：角标、徽标 */
+    --font-size-sm: 0.9rem; /* 次要说明 */
+    --font-size-md: 1rem; /* 表格与密集列表 */
+    --font-size-lg: 1.1rem; /* 小节标题 */
+    --font-size-base: 1.2rem; /* 正文基准 */
+    --font-size-xl: 1.4rem; /* 页面标题 */
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font:
+        var(--font-size-base) / 1.6 ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        Consolas,
+        monospace;
+}
+
+button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+input,
+select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font: inherit;
+    width: 100%;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+label {
+    display: block;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+a {
+    color: var(--accent);
+}
+
+code {
+    color: var(--muted);
+}
+
+.err {
+    color: var(--danger);
+}
+
+.muted {
+    color: var(--muted);
+}
+
+/*
+ * 弹出消息：长错误信息要能换行并滚动
+ * vue3-toastify 的 toast 是 overflow: hidden 的横向 flex 行（图标｜正文｜关闭按钮），
+ * 而它的正文规则里没有 min-width: 0 也没有断词规则。正文一旦出现长串不可断的文本
+ * （URL、domain.path 这种点分路径、长 token），最小内容宽度就会把整行撑得比容器宽，
+ * 末尾的关闭按钮被 overflow: hidden 裁掉，表现为「错误消息没有关闭按钮」。
+ * 这里补三件事：正文允许任意位置断词、正文可滚动而不是被裁、关闭按钮不参与压缩。
+ */
+.Toastify__toast,
+.Toastify__toast-body,
+.Toastify__toast-body > div:last-child {
+    min-width: 0;
+}
+
+.Toastify__toast-body {
+    overflow-wrap: anywhere;
+}
+
+/* 超长错误不占满整屏：正文超过四成视口高度就在内部滚动，信息不丢 */
+.Toastify__toast-body > div:last-child {
+    max-height: 40vh;
+    overflow: auto;
+}
+
+.Toastify__close-button {
+    flex-shrink: 0;
+}
+
+/* 加载条跟随界面主色，spinner 已在 progress.ts 中关闭 */
+#nprogress .bar {
+    background: var(--accent);
+}
+
+#nprogress .peg {
+    box-shadow:
+        0 0 10px var(--accent),
+        0 0 5px var(--accent);
+}
+
+/* 面板切换过渡，与 skilfully-web 同一套曲线与时长 */
+.page-enter-active,
+.page-leave-active {
+    transition:
+        opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page-enter-from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+}
+
+.page-leave-to {
+    opacity: 0;
+    transform: translateY(-0.75rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .page-enter-active,
+    .page-leave-active {
+        transition:
+            opacity 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    .page-enter-from,
+    .page-leave-to {
+        transform: none;
+    }
+}

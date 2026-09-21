@@ -1,0 +1,35 @@
+/*
+ * 图标字体。来自用户提供的 iconfont 包，只有两个字形：
+ * setting（\e78e，设置按钮）与 search（\e8ef，搜索按钮）。
+ * 字体文件放在 web/src/assets/iconfont.ttf，构建时由 Vite 作为资源输出并带上内容哈希。
+ *
+ * 用法与仓库里手写的 SVG 一致：旁边另有文字说明时加 aria-hidden，颜色跟随 currentColor，
+ * 字号跟随所在按钮的 rem 阶梯（默认 1em，需要大一点就在调用处写 font-size）。
+ */
+
+@font-face {
+    font-family: "iconfont";
+    src: url("./assets/iconfont.ttf") format("truetype");
+    /* 图标字体的兜底字形是字母，字体未就绪时短暂不显示，避免先闪出一个字母字形 */
+    font-display: block;
+}
+
+.iconfont {
+    display: inline-block;
+    font-family: "iconfont", sans-serif;
+    font-size: 1em;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 1;
+    text-rendering: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-setting::before {
+    content: "\e78e";
+}
+
+.icon-search::before {
+    content: "\e8ef";
+}
