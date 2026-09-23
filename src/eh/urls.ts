@@ -12,18 +12,23 @@ const SITE_ORIGINS: Readonly<Record<UpstreamSite, string>> = {
 /**
  * 分类位。上游搜索表单只有 10 个分类复选（cat_1 … cat_512），Private 没有对应位，无法过滤
  * f_cats 为排除掩码：默认 0 表示不过滤，1023 表示全排除（上游对 1023 与 >=1024 均按不过滤处理）
+ *
+ * 位值取自上游表单自身的 id（cat_1 / cat_2 / cat_4 / … / cat_512），顺序与界面上的排列顺序无关：
+ * Misc=1 Doujinshi=2 Manga=4 Artist CG=8 Game CG=16 Image Set=32 Cosplay=64 Asian Porn=128
+ * Non-H=256 Western=512。按界面的排列顺序推位值会让后 5 个分类整体错位，
+ * 例如选 Cosplay 实际过滤成 Non-H、选 Image Set 实际过滤成 Asian Porn
  */
 export const CATEGORY_BITS: Readonly<Record<string, number>> = {
-    Misc: 1 << 0,
-    Doujinshi: 1 << 1,
-    Manga: 1 << 2,
-    "Artist CG": 1 << 3,
-    "Game CG": 1 << 4,
-    Western: 1 << 5,
-    "Non-H": 1 << 6,
-    "Image Set": 1 << 7,
-    Cosplay: 1 << 8,
-    "Asian Porn": 1 << 9,
+    Misc: 1, // cat_1
+    Doujinshi: 2, // cat_2
+    Manga: 4, // cat_4
+    "Artist CG": 8, // cat_8
+    "Game CG": 16, // cat_16
+    "Image Set": 32, // cat_32
+    Cosplay: 64, // cat_64
+    "Asian Porn": 128, // cat_128
+    "Non-H": 256, // cat_256
+    Western: 512, // cat_512
 };
 
 export const ALL_CATEGORY_BITS = Object.values(CATEGORY_BITS).reduce((a, b) => a | b, 0);

@@ -20,7 +20,7 @@
         "url": "git+https://github.com/EtherosGroup/EhBrowser.git"
     },
     "bin": {
-        "ehbrowser": "./dist/main.js"
+        "ehbrowser": "dist/main.js"
     },
     "files": [
         "dist"
