@@ -9,6 +9,13 @@
     --accent: #6ea8fe;
     --danger: #f2777a;
     --ok: #7ec699;
+    /*
+     * 下载入口的绿色系：正在下载是干活的状态，不用红（红在别处表示错误）。
+     * 三层：底色极淡、正常色、hover 与角标用的亮一档
+     */
+    --download: #6fbf8f;
+    --download-strong: #8fd6a8;
+    --download-bg: color-mix(in srgb, var(--download) 16%, var(--panel-2));
 
     /* 层级阶梯。浮层只从这里取值，避免各处写魔法数字而互相遮挡 */
     --z-card: 10; /* 卡片浮起 */

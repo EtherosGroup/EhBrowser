@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 
-import { activeCount, refreshDownloads } from "./downloads.ts";
+import { refreshDownloads } from "./downloads.ts";
 import { TABS } from "./router.ts";
 import { hintAutoSearch } from "./auto-search.ts";
 import { hintEscape, isEscapeShortcut, triggerEscape } from "./safety.ts";
@@ -15,6 +15,14 @@ import { startLocalLatencyProbe } from "./diagnostics.ts";
 const route = useRoute();
 let unsubscribe: (() => void) | null = null;
 let stopLatencyProbe: (() => void) | null = null;
+
+/*
+ * 页头高度。右上角那组状态图标固定在视口里，要让开页头右侧那块内容，
+ * 而页头在窄窗口下会换行、高度会变，因此实测而不是写死。
+ */
+const header = ref<HTMLElement | null>(null);
+const headerHeight = ref(0);
+let headerObserver: ResizeObserver | null = null;
 
 /** Ctrl + 空格 紧急避险。全局生效，因此挂在应用外壳上 */
 function onKeydown(event: KeyboardEvent): void {
@@ -35,6 +43,14 @@ onMounted(async () => {
     stopLatencyProbe = startLocalLatencyProbe();
     // 徽标要有初值：事件只在任务变化时来
     void refreshDownloads();
+    // 量一次页头高度，之后跟着它变
+    if (header.value !== null) {
+        headerObserver = new ResizeObserver(() => {
+            headerHeight.value = Math.round(header.value?.getBoundingClientRect().height ?? 0);
+        });
+        headerObserver.observe(header.value);
+        headerHeight.value = Math.round(header.value.getBoundingClientRect().height);
+    }
     // 两条提示的文案都要读配置（避险地点、自动搜索开关），因此等配置读完再提示
     hintEscape();
     hintAutoSearch();
@@ -54,11 +70,12 @@ onUnmounted(() => {
     window.removeEventListener("keydown", onKeydown);
     unsubscribe?.();
     stopLatencyProbe?.();
+    headerObserver?.disconnect();
 });
 </script>
 
 <template>
-    <header>
+    <header ref="header">
         <div class="brand">
             <strong>EhBrowser</strong>
             <span class="muted">v{{ version || "…" }}</span>
@@ -75,16 +92,6 @@ onUnmounted(() => {
             </RouterLink>
         </nav>
         <div class="status muted">代理：{{ proxyLabel }}</div>
-
-        <!-- 下载入口。没有未结束的任务时不显示角标 -->
-        <RouterLink class="downloads" to="/downloads" title="下载任务" aria-label="下载任务">
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-                <path d="M10 3v9" />
-                <path d="M6 8.5 10 12.5l4-4" />
-                <path d="M4 16h12" />
-            </svg>
-            <span v-if="activeCount > 0" class="badge">{{ activeCount }}</span>
-        </RouterLink>
     </header>
 
     <main>
@@ -97,7 +104,8 @@ onUnmounted(() => {
     </main>
 
     <!-- 首次打开的提醒。挂在应用外壳上，因此哪个页面都会先看到 -->
-    <StatusIcons />
+    <!-- 压在页头下方：右上角那块被页头占着（代理摘要等） -->
+    <StatusIcons :offset-top="headerHeight + 10" />
     <WelcomeDialog />
 </template>
 
@@ -139,49 +147,6 @@ nav a:hover {
 nav a.active {
     border-color: var(--accent);
     color: var(--accent);
-}
-
-/* 下载入口：图标 + 右上角红色数量角标 */
-.downloads {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    color: var(--text);
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-}
-
-.downloads:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.downloads svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentcolor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-
-.downloads .badge {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    min-width: 17px;
-    padding: 0 4px;
-    color: #fff;
-    font-size: var(--font-size-xs);
-    line-height: 17px;
-    text-align: center;
-    background: var(--danger);
-    border-radius: 9px;
-    box-shadow: 0 0 0 2px var(--panel);
 }
 
 .status {
