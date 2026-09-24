@@ -1,34 +1,30 @@
 # 把包发到 npm
 #
-# 两个入口：
-#   1. 被 release.yml 调用：推 v* 标签发 Release 时顺带发一次（with: dry-run: false）
+# 入口两个：
+#   1. 推 v* 标签时自动跑（与 release.yml 同一个标签各自触发一次，互不依赖）
 #   2. 手动触发（Actions 页面或 gh workflow run publish-npm.yml）：dry-run 默认 true，只演练
 #
-# 为什么由 release.yml「调用」而不是把发布步骤直接写进 release.yml：
-# npm 的 Trusted Publisher 认的是工作流文件名，已按 publish-npm.yml 配置好（1.0.1 就是这么发的）。
-# 以可复用工作流的形式被调用时，OIDC 令牌里的 job_workflow_ref 仍指向 publish-npm.yml，
-# 因此不必去 npm 侧改配置；把 npm publish 写进 release.yml 则会让它变成 release.yml，需要重新配置。
+# 为什么是「自己盯标签」而不是被 release.yml 调用（走过一次弯路，记在这里）：
+# npm 的 Trusted Publisher 认的是**触发这次运行的入口工作流**，而不是真正执行发布的那一个。
+# 实测：release.yml 里用 `uses: ./.github/workflows/publish-npm.yml` 调用时，
+# `npm publish` 拿到 OIDC 后 registry 回 E404（provenance 都签名上传了，鉴权就是不通过）；
+# 直接跑 publish-npm.yml（手动或推标签）则成功——1.0.1、1.0.2 就是这么发出去的。
+# 所以要么让 npm 侧把工作流文件名改成 release.yml，要么让这个工作流自己盯标签；这里选后者，
+# npm 侧不必改配置（配置里填的是 publish-npm.yml，与手动演练路径也一致）。
 #
-# 授权方式（二选一）：
-#   A. Trusted Publishing（推荐，无需长期密钥）——当前用的就是这条
-#      npmjs.com -> 你的包 -> Settings -> Trusted Publisher -> GitHub Actions，
-#      填仓库 EtherosGroup/EhBrowser 与本文件名 publish-npm.yml。
-#      之后靠 OIDC 临时凭证发布，并自动带上 provenance 签名。
-#   B. 传统 Token：在 npmjs.com 生成 Automation Token，存成仓库密钥 NPM_TOKEN，
-#      并把下面的 NODE_AUTH_TOKEN 那行放开。
+# 授权方式：
+#   Trusted Publishing（当前用的）：npmjs.com -> 你的包 -> Settings -> Trusted Publisher ->
+#   GitHub Actions，填仓库 EtherosGroup/EhBrowser 与工作流文件名 publish-npm.yml。
+#   靠 OIDC 临时凭证发布，自动带上 provenance 签名，不需要长期 token。
+#   （另一条路是传统 Token：仓库密钥 NPM_TOKEN + 放开下面 NODE_AUTH_TOKEN 那行。）
 #
 # 演练：手动触发时将 dry-run 保持 true，只查看打包结果，不实际发布。
 
 name: publish-npm
 
 on:
-    # release.yml 调用它。默认仍然是演练：调用方忘了传 dry-run 时不会误发
-    workflow_call:
-        inputs:
-            dry-run:
-                description: 只打包演练，不真正发布
-                type: boolean
-                default: true
+    push:
+        tags: ["v*"]
     workflow_dispatch:
         inputs:
             dry-run:
@@ -75,6 +71,19 @@ jobs:
                   grep -q "dist/web/index.html" /tmp/pack.txt
                   grep -E "total files|package size|unpacked size" /tmp/pack.txt
 
+            # 推标签进来的那条路也核一次：发出去的版本号必须与标签一致
+            - name: 核对标签与 package.json 的版本
+              if: github.event_name == 'push'
+              run: |
+                  set -e
+                  tag="${{ github.ref_name }}"
+                  version="v$(node -p "require('./package.json').version")"
+                  if [ "$tag" != "$version" ]; then
+                    echo "标签是 $tag，但 package.json 里是 $version。"
+                    exit 1
+                  fi
+                  echo "版本对得上：$tag"
+
             - name: 该版本已经在 npm 上就跳过
               id: check
               # 推同一个标签两次时 release.yml 是可重入的（附件覆盖上传），npm 侧则不能重复发布
@@ -91,12 +100,13 @@ jobs:
                   fi
 
             - name: 演练（不发布）
-              if: ${{ inputs.dry-run }}
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
               # 同样会运行 prepublishOnly（再次构建），因此这里打印的是实际的内容清单
               run: npm publish --dry-run
 
             - name: 发布
-              if: ${{ !inputs.dry-run && steps.check.outputs.skip != '1' }}
+              # 推标签时直接发；手动触发时只有把 dry-run 关掉才发。已经发过的版本跳过
+              if: ${{ (github.event_name == 'push' || !inputs.dry-run) && steps.check.outputs.skip != '1' }}
               # prepublishOnly 会自动运行 npm run build，因此这里不必再构建一次
               run: npm publish --provenance --access public
               # env:

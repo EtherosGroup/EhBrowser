@@ -313,8 +313,8 @@ scripts/
 └── portable.mjs   打便携包：组装目录 + 自己按 PKZIP 格式写 zip（不引第三方依赖）
 
 .github/workflows/
-├── release.yml        推 v* 标签 -> 构建 + 打便携包 -> 建 Release 并附上附件 -> 调用 publish-npm.yml 发 npm
-└── publish-npm.yml    发 npm（可被 release.yml 调用，也可手动触发演练；用 Trusted Publishing）
+├── release.yml        推 v* 标签 -> 构建 + 打便携包 -> 建 Release 并附上附件
+└── publish-npm.yml    推 v* 标签 / 手动触发 -> 发 npm（Trusted Publishing）
 ```
 
 依赖方向单向：`main -> api -> services -> config -> platform`。上游客户端 `eh/` 独立于以上各层，只由 `services/` 调用。
@@ -467,11 +467,14 @@ npm version minor                 # 改版本号并打本地附注标签（v1.0.
 git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .github/workflows/release.yml
 ```
 
-那条流水线按顺序做：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并把便携包作为附件上传 -> **调用 `publish-npm.yml` 把这一版发到 npm**（`needs: portable`，Release 成了才发）。Release 那步只用仓库自带的 `GITHUB_TOKEN`，发 npm 那步用 Trusted Publishing 的 OIDC 临时凭证，都不需要密钥。同一标签重复推送时附件改为覆盖上传，npm 那步会先查该版本是否已发布、已发过就跳过，因此重复推标签不会变成失败记录。
+一个标签会触发**两条工作流，互不依赖**：
+
+- `release.yml`：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并把便携包作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
+- `publish-npm.yml`：同样的构建与核对，然后把这一版发到 npm（`npm publish --provenance --access public`），用 Trusted Publishing 的 OIDC 临时凭证。它先查该版本是否已经在 npm 上，已发过就跳过，因此重复推标签不会多出一条失败记录。
+
+两条分开跑而不是让 `release.yml` 调用 `publish-npm.yml`，是因为 **npm 的 Trusted Publisher 认的是触发这次运行的入口工作流**，不是真正执行发布的那一个。实测：用 `uses: ./.github/workflows/publish-npm.yml` 调用时，OIDC 拿得到、provenance 也签名上传了，但 registry 回 `404 Not Found - PUT https://registry.npmjs.org/ehbrowser`；直接跑 `publish-npm.yml`（手动或推标签）就成功（1.0.1、1.0.2 都是这么发的）。要让被调用的形式也成立，得去 npm 侧把工作流文件名改成 `release.yml`，不如让这个工作流自己盯标签。
 
 手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
-
-发 npm 这一步是**调用** `.github/workflows/publish-npm.yml`，而不是把 `npm publish` 写进 `release.yml`：npm 的 Trusted Publisher 校验的是**真正执行发布那个工作流**的文件名，可复用工作流被调用时 GitHub 的 OIDC 令牌里 `job_workflow_ref` 指向被调用者，因此配置仍按 `publish-npm.yml` 有效。把发布步骤写进 `release.yml` 会让名字变成 `release.yml`，得去 npm 侧改配置才行。
 
 ### 便携包（`npm run release:portable`）
 
@@ -493,7 +496,7 @@ EhBrowser-1.0.0/
 
 ### 发到 npm
 
-`.github/workflows/publish-npm.yml` 有两种入口：推 `v*` 标签时由 `release.yml` 调用（`with: dry-run: false`，真正发布），或者手动触发——在 Actions 页面点 Run workflow / `gh workflow run publish-npm.yml`，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）。`workflow_call` 的 `dry-run` 默认也是 `true`：调用方忘了传时只会演练，不会误发。
+`.github/workflows/publish-npm.yml` 有两种入口：推 `v*` 标签时自动跑（直接发布），或者手动触发——在 Actions 页面点 Run workflow / `gh workflow run publish-npm.yml`，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）；想手动补发某一版就选分支/标签（`ref`）并把 `dry-run` 关掉。
 
 发布用 npm 的 Trusted Publishing：npmjs.com -> 你的包 -> Settings -> Trusted Publisher -> GitHub Actions，填仓库 `EtherosGroup/EhBrowser` 与工作流文件名 `publish-npm.yml`（当前用的就是这条，1.0.1 是这么发出去的，带 provenance 签名）。不需要长期 token；npm、Node 的版本要求（npm ≥ 11.5.1）由 `node-version: 24` 满足。也可以在本地手动发布：
 

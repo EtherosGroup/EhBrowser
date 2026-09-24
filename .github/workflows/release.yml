@@ -1,7 +1,12 @@
-# 推一个 v* 标签即发布一个 Release（附上便携包），同一个 run 里再发一次 npm
+# 推一个 v* 标签即发布一个 Release，并附上便携包
 #
-#   npm version patch
+#   npm version minor
 #   git push origin HEAD --tags
+#
+# 同一个标签会触发两条工作流，互不依赖：
+#   本文件：构建 + 打便携包 -> 建 Release 并附上附件
+#   publish-npm.yml：把这一版发到 npm（它自己盯 v* 标签，原因见该文件头部：
+#   npm 的 Trusted Publisher 认触发运行的入口工作流，用 workflow_call 被本文件调用会 404）
 #
 # 不需要任何密钥：创建 Release 与上传附件用仓库自带的 GITHUB_TOKEN，
 # 发 npm 走 Trusted Publishing 的 OIDC 临时凭证。
@@ -10,10 +15,6 @@
 # 手动触发（Actions 页面或 gh workflow run release.yml）走的是演练路径：
 # 同样构建与打包，但只把 zip 上传为 workflow artifact，不创建 Release、不打标签、也不发 npm。
 # 因此正式发版之前可以先把产物下载下来核验一遍。
-#
-# 发 npm 的那一步调用 publish-npm.yml，而不是把发布步骤写在这里：npm 的 Trusted Publisher
-# 认的是工作流文件名，当前已按 publish-npm.yml 配置（1.0.1 就是这么发的）。以可复用工作流的
-# 形式调用时，OIDC 令牌里的 job_workflow_ref 仍指向 publish-npm.yml，因此 npm 侧不必改配置。
 
 name: release
 
@@ -92,16 +93,3 @@ jobs:
                       release/*-portable.zip
                   fi
                   gh release view "$TAG" --json url --jq .url
-
-    # 发 npm。调用 publish-npm.yml（见文件头的说明：npm 的 Trusted Publisher 认的是那个文件名）
-    npm:
-        # 只在推标签时发；手动触发 release.yml 是演练路径，不发 npm
-        if: github.event_name == 'push'
-        # 等便携包与 Release 都成了再发 npm：否则可能出现「npm 上有这一版、Release 没发成」
-        needs: portable
-        permissions:
-            contents: read
-            id-token: write # Trusted Publishing（OIDC）需要它
-        uses: ./.github/workflows/publish-npm.yml
-        with:
-            dry-run: false
