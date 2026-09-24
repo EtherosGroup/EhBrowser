@@ -3,4 +3,5 @@
 /.npm_cache/
 /.idea/
 /release/
+/working/
 *.tgz
