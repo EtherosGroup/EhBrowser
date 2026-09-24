@@ -13,6 +13,8 @@ import type {
     AuthStatus,
     CancelDownloadResult,
     ConfigSnapshot,
+    DebugStatusInput,
+    DebugStatusResult,
     DownloadTask,
     EnqueueDownloadInput,
     ExportConfigInput,
@@ -60,6 +62,7 @@ import type {
     RateGalleryResult,
     ShutdownResult,
     SystemHealth,
+    SystemStatusState,
     TorrentInfo,
     UserSettingPatch,
     StorageCleanupInput,
@@ -105,6 +108,10 @@ export interface RemovedResult {
 export interface ApiRouteContract {
     // ── 系统 ───────────────────────────────────────────────
     "system.health": { response: ApiResponse<SystemHealth> };
+    /** 客户端状态提示的当前值。SSE 会推变化，这里用于首屏与排查 */
+    "system.status": { response: ApiResponse<SystemStatusState> };
+    /** 调试：强制状态项。返回注入后的状态，页面据此直接刷新 */
+    "debug.status": { body: DebugStatusInput; response: ApiResponse<DebugStatusResult> };
     /** 关闭本地服务。成功后界面与 SSE 都会断开，需要重新启动进程 */
     "system.shutdown": { response: ApiResponse<ShutdownResult> };
     /** SSE 返回事件流而非信封，故 response 为 never；负载类型见 events.ts */

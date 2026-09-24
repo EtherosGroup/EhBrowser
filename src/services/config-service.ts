@@ -173,6 +173,10 @@ function toWireSetting(setting: InternalUserSetting, auth: AuthSetting): WireUse
             enabled: setting.log.enabled,
             directory: setting.log.directory,
         },
+        search: {
+            auto: setting.search.auto,
+            hintEnabled: setting.search.hintEnabled,
+        },
         ui: {
             theme: setting.ui.theme,
             thumbnailSize: setting.ui.thumbnailSize,

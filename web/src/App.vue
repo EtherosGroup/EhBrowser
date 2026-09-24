@@ -4,13 +4,17 @@ import { RouterLink, RouterView, useRoute } from "vue-router";
 
 import { activeCount, refreshDownloads } from "./downloads.ts";
 import { TABS } from "./router.ts";
+import { hintAutoSearch } from "./auto-search.ts";
 import { hintEscape, isEscapeShortcut, triggerEscape } from "./safety.ts";
 import { proxyLabel, refreshStatus, startEventStream, version } from "./status.ts";
 import { openWelcomeIfFirstRun } from "./welcome.ts";
+import StatusIcons from "./components/StatusIcons.vue";
 import WelcomeDialog from "./components/WelcomeDialog.vue";
+import { startLocalLatencyProbe } from "./diagnostics.ts";
 
 const route = useRoute();
 let unsubscribe: (() => void) | null = null;
+let stopLatencyProbe: (() => void) | null = null;
 
 /** Ctrl + 空格 紧急避险。全局生效，因此挂在应用外壳上 */
 function onKeydown(event: KeyboardEvent): void {
@@ -27,10 +31,13 @@ onMounted(async () => {
     openWelcomeIfFirstRun();
     await refreshStatus();
     unsubscribe = startEventStream();
+    // 「与 EhBrowser 的连接速度」只有浏览器测得了，服务端推来的状态里不含这一项
+    stopLatencyProbe = startLocalLatencyProbe();
     // 徽标要有初值：事件只在任务变化时来
     void refreshDownloads();
-    // 提示文案里要带避险地点，因此等配置读完再提示
+    // 两条提示的文案都要读配置（避险地点、自动搜索开关），因此等配置读完再提示
     hintEscape();
+    hintAutoSearch();
 });
 
 // 回到 EhBrowser 页面（搜索页）时也提示一次
@@ -46,6 +53,7 @@ watch(
 onUnmounted(() => {
     window.removeEventListener("keydown", onKeydown);
     unsubscribe?.();
+    stopLatencyProbe?.();
 });
 </script>
 
@@ -89,6 +97,7 @@ onUnmounted(() => {
     </main>
 
     <!-- 首次打开的提醒。挂在应用外壳上，因此哪个页面都会先看到 -->
+    <StatusIcons />
     <WelcomeDialog />
 </template>
 

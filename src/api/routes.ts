@@ -39,6 +39,20 @@ export const ROUTES = {
         requiresToken: false,
         requiresAccount: false,
     },
+    "system.status": {
+        method: "GET",
+        path: "/api/status",
+        description: "客户端状态提示：当前处于异常状态的那些项与采样值",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "debug.status": {
+        method: "POST",
+        path: "/api/debug/status",
+        description: "调试：强制点亮/熄灭某个状态项，供 /debug 页面摆出各枚图标",
+        requiresToken: true,
+        requiresAccount: false,
+    },
     "system.shutdown": {
         method: "POST",
         path: "/api/system/shutdown",

@@ -78,6 +78,13 @@ export interface LogSetting {
     readonly directory: string;
 }
 
+export interface SearchSetting {
+    /** 打开界面时是否自动检索画廊（启动预热 + 打开搜索页铺默认结果） */
+    readonly auto: boolean;
+    /** 进入页面时是否提示可以开自动搜索 */
+    readonly hintEnabled: boolean;
+}
+
 export interface UiSetting {
     readonly theme: "system" | "light" | "dark";
     readonly thumbnailSize: number;
@@ -99,6 +106,7 @@ export interface UserSetting {
     readonly download: DownloadSetting;
     readonly log: LogSetting;
     readonly ui: UiSetting;
+    readonly search: SearchSetting;
 }
 
 /** 仅包含需修改的字段，由服务端深合并 */

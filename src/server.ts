@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import {
     API_EVENT_HEARTBEAT_MS,
     API_TOKEN_HEADER,
+    STATUS_FLAGS,
     API_TOKEN_QUERY_PARAM,
     ROUTES,
     fail,
@@ -28,6 +29,7 @@ import {
     type GallerySearchQuery,
     type HttpMethod,
     type SystemHealth,
+    type SystemStatusState,
     type TranslateStatus,
     type UpdateCheckTarget,
 } from "./api/index.ts";
@@ -44,6 +46,7 @@ import type { PlaylistService } from "./services/playlist-service.ts";
 import type { FavoriteService } from "./services/favorite-service.ts";
 import type { LogService } from "./services/log-service.ts";
 import type { TranslateService } from "./services/translate-service.ts";
+import type { DiagnosticsService } from "./services/diagnostics-service.ts";
 import type { UpdateService } from "./services/update-service.ts";
 
 const HOST = "127.0.0.1";
@@ -73,6 +76,11 @@ export interface ServerOptions {
     readonly translate?: TranslateService;
     /** 缺省时日志路由返回空状态 */
     readonly logs?: LogService;
+    /**
+     * 客户端状态提示。接入后服务端会把自己这一侧能观测到的都报给它：
+     * SSE 连接数、在途请求、上游耗时、以及各类错误的归类。
+     */
+    readonly diagnostics?: DiagnosticsService;
     readonly token: string;
     readonly version: string;
     readonly host?: string;
@@ -105,6 +113,7 @@ interface MatchedRoute {
 const MATCHERS = buildMatchers();
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
+    diagnosticsRef = options.diagnostics;
     const host = options.host ?? HOST;
     const requestedPort = options.port ?? DEFAULT_PORT;
     const staticDir = options.staticDir ?? (await resolveStaticDir());
@@ -124,6 +133,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const url = new URL(request.url ?? "/", `http://${host}:${requestedPort}`);
         const method = (request.method ?? "GET").toUpperCase() as HttpMethod;
+        // 在途请求数：状态提示里「客户端繁忙」看的就是它
+        options.diagnostics?.noteRequestStart();
+        response.once("close", () => options.diagnostics?.noteRequestEnd());
 
         if (!isHostAllowed(request.headers.host, host, requestedPort)) {
             sendError(response, "forbidden", "Host 不在允许范围");
@@ -230,6 +242,42 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         switch (matched.name) {
             case "system.health": {
                 sendJson(response, 200, ok(health()));
+                return;
+            }
+            case "system.status": {
+                sendJson(response, 200, ok(statusState()));
+                return;
+            }
+            case "debug.status": {
+                // 调试用：把某一项状态强行点亮/熄灭，/debug 页面据此摆出各枚图标看效果
+                const diagnostics = options.diagnostics;
+                if (diagnostics === undefined) {
+                    sendError(response, "not_implemented", "未接入诊断服务");
+                    return;
+                }
+                let body: unknown;
+                try {
+                    body = await readJsonBody(request);
+                } catch (error) {
+                    sendError(response, "bad_request", describeError(error));
+                    return;
+                }
+                const input = body as { flag?: unknown; forced?: unknown };
+                if (input.flag === "all") {
+                    diagnostics.clearForced();
+                } else if (input.flag === null || input.flag === undefined) {
+                    // 只读：页面每几秒来取一次当前状态，不能顺手把那几项强制项清掉
+                } else if (typeof input.flag === "string" && isStatusFlag(input.flag)) {
+                    diagnostics.forceFlag(input.flag, input.forced === true);
+                } else {
+                    sendError(response, "bad_request", `未知的状态项：${String(input.flag)}`);
+                    return;
+                }
+                sendJson(
+                    response,
+                    200,
+                    ok({ state: statusState(), forced: diagnostics.forcedFlags() }),
+                );
                 return;
             }
             case "config.get": {
@@ -529,6 +577,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         });
         response.write("retry: 3000\n\n");
         clients.add(response);
+        options.diagnostics?.noteConnections(clients.size);
 
         const heartbeat = setInterval(() => {
             response.write(": ping\n\n");
@@ -537,9 +586,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         request.on("close", () => {
             clearInterval(heartbeat);
             clients.delete(response);
+            options.diagnostics?.noteConnections(clients.size);
         });
 
         writeEvent(response, "server.ready", { version: options.version, startedAt });
+        // 刚接上时补一次当前状态：这个页面之前的变化它没听到
+        writeEvent(response, "system.status", statusState());
     }
 
     options.service.onChange((snapshot) => {
@@ -567,6 +619,39 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         broadcast("log.appended", { level, tag, message, at });
     });
 
+    options.diagnostics?.onChange((state) => {
+        broadcast("system.status", state);
+    });
+
+    /** 状态项名字的合法性：直接照着契约里那份枚举认 */
+    function isStatusFlag(value: string): value is SystemStatusState["active"][number] {
+        return (STATUS_FLAGS as readonly string[]).includes(value);
+    }
+
+    /** 未接入诊断服务时也给一份空状态：契约要求这条路始终有响应 */
+    function statusState(): SystemStatusState {
+        const state = options.diagnostics?.state();
+        if (state !== undefined) {
+            return state;
+        }
+        return {
+            active: [],
+            metrics: {
+                connections: clients.size,
+                inflight: 0,
+                upstreamMs: null,
+                diskMs: null,
+                freeMemoryMb: 0,
+                totalMemoryMb: 0,
+                heapUsedMb: 0,
+                heapLimitMb: 0,
+                fsErrors: 0,
+                internalErrors: 0,
+            },
+            sampledAt: Math.floor(Date.now() / 1000),
+        };
+    }
+
     function broadcast<K extends ApiEventName>(event: K, data: ApiEventPayloads[K]): void {
         for (const client of clients) {
             writeEvent(client, event, data);
@@ -590,6 +675,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         token: options.token,
         broadcast,
         async close() {
+            diagnosticsRef = undefined;
             for (const client of clients) {
                 client.end();
             }
@@ -708,13 +794,37 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
     response.end(body);
 }
 
+/**
+ * 当前进程的诊断服务。sendError 是模块级工具、被几十处调用，逐个传参不值得，
+ * 因此在 startServer 里放一份引用给它；未接入诊断时保持 undefined，各处判断走可选链。
+ */
+let diagnosticsRef: DiagnosticsService | undefined;
+
 function sendError(
     response: ServerResponse,
     code: ApiErrorCode,
     message: string,
     issues?: readonly FieldIssue[],
+    diagnostics: DiagnosticsService | undefined = diagnosticsRef,
 ): void {
+    // 500 说明是客户端自己的问题（上游与账号问题另有错误码），记一笔供状态提示亮图标
+    if (code === "internal") {
+        diagnostics?.noteInternalError(message);
+    }
+    if (isFsError(message)) {
+        diagnostics?.noteFsError(message);
+    }
     sendJson(response, statusForError(code), fail(code, message, { issues }));
+}
+
+/**
+ * 错误文本里有没有文件系统的痕迹。上游、账号、参数问题各有自己的错误码，
+ * 这里只在文本里认出 errno 一类的标记，用于点亮「文件系统异常」那个图标。
+ */
+function isFsError(message: string): boolean {
+    return /\b(EACCES|EPERM|EROFS|EIO|ENOSPC|ENOTDIR|EISDIR|EBUSY|EMFILE|ENFILE|ENXIO|ESTALE|EDQUOT)\b/.test(
+        message,
+    );
 }
 
 function writeEvent<K extends ApiEventName>(

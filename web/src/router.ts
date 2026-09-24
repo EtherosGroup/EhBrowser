@@ -15,6 +15,7 @@ import PlayerPage from "./components/PlayerPage.vue";
 import FavoritesPage from "./components/FavoritesPage.vue";
 import PlaylistPage from "./components/PlaylistPage.vue";
 import ConfigPanel from "./components/ConfigPanel.vue";
+import DebugPage from "./components/DebugPage.vue";
 import DownloadsPanel from "./components/DownloadsPanel.vue";
 import SearchPanel from "./components/SearchPanel.vue";
 import ServicePanel from "./components/ServicePanel.vue";
@@ -50,6 +51,8 @@ const routes: RouteRecordRaw[] = [
         component: tab.component,
         meta: { title: tab.title },
     })),
+    // 调试页：不在顶部标签里，从地址栏直接进（用来摆状态图标）
+    { path: "/debug", name: "debug", component: DebugPage },
     // 画廊详情独立成页：只加载这一个画廊，地址可收藏、可分享
     {
         path: "/g/:gid/:token",

@@ -83,6 +83,16 @@ export const USER_SETTING_MIGRATIONS: readonly Migration[] = [
             };
         },
     },
+    {
+        // v6 增加自动搜索：默认关闭（打开界面不主动拉内容），提示默认开启
+        from: 5,
+        to: 6,
+        migrate: (data) => ({
+            ...data,
+            schemaVersion: 6,
+            ...(data["search"] === undefined ? { search: { auto: false, hintEnabled: true } } : {}),
+        }),
+    },
 ];
 
 export const AUTH_SETTING_MIGRATIONS: readonly Migration[] = [];

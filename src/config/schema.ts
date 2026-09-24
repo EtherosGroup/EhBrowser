@@ -5,7 +5,7 @@
 
 import type { FieldSpec } from "./validate.ts";
 
-export const USER_SETTING_VERSION = 5;
+export const USER_SETTING_VERSION = 6;
 
 export interface ProxyConfig {
     readonly enabled: boolean;
@@ -69,6 +69,16 @@ export interface LogConfig {
     readonly directory: string;
 }
 
+export interface SearchConfig {
+    /**
+     * 打开界面时是否自动检索画廊：启动时预热一次，打开搜索页时铺一份默认结果。
+     * 默认关闭——不打招呼就去上游拉内容，对这类工具不合适。
+     */
+    readonly auto: boolean;
+    /** 进入页面时是否提示可以开自动搜索 */
+    readonly hintEnabled: boolean;
+}
+
 export interface UiConfig {
     readonly theme: "system" | "light" | "dark";
     readonly thumbnailSize: number;
@@ -88,6 +98,7 @@ export interface UserSetting {
     readonly download: DownloadConfig;
     readonly log: LogConfig;
     readonly ui: UiConfig;
+    readonly search: SearchConfig;
 }
 
 export const USER_SETTING_DEFAULTS: UserSetting = {
@@ -142,6 +153,11 @@ export const USER_SETTING_DEFAULTS: UserSetting = {
         pageSize: 25,
         cachedGalleries: 20,
     },
+    search: {
+        // 默认不自动搜索：打开界面时不主动去上游拉内容
+        auto: false,
+        hintEnabled: true,
+    },
 };
 
 export const USER_SETTING_FIELDS: readonly FieldSpec[] = [
@@ -179,6 +195,8 @@ export const USER_SETTING_FIELDS: readonly FieldSpec[] = [
     { path: "ui.thumbnailSize", kind: "int", min: 100, max: 1000 },
     { path: "ui.pageSize", kind: "int", min: 5, max: 100 },
     { path: "ui.cachedGalleries", kind: "int", min: 0, max: 500 },
+    { path: "search.auto", kind: "boolean" },
+    { path: "search.hintEnabled", kind: "boolean" },
 ];
 
 export const AUTH_SETTING_VERSION = 1;

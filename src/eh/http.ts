@@ -106,9 +106,28 @@ export interface UpstreamResponse {
     readonly text: string;
 }
 
+/**
+ * 上游请求耗时的观察者。诊断服务用它判断「与上游站点的通信是不是变慢了」。
+ * 在 eh 层放一个观察者而不是把诊断服务层层传进来：callApi 的调用方散布在画廊、账号、收藏等处。
+ * 传 null 取消观察。
+ */
+let durationObserver: ((durationMs: number) => void) | null = null;
+
+export function observeRequestDuration(listener: ((durationMs: number) => void) | null): void {
+    durationObserver = listener;
+}
+
 /** 发起一次上游请求，经串行队列与最小间隔节流 */
 export async function callApi(request: UpstreamRequest): Promise<UpstreamResponse> {
-    return schedule(() => send(request));
+    // 只计真实请求的耗时，不含排队等节流的时间：节流是本地主动限速，不算上游慢
+    return schedule(async () => {
+        const started = performance.now();
+        try {
+            return await send(request);
+        } finally {
+            durationObserver?.(performance.now() - started);
+        }
+    });
 }
 
 /** 同上，并将响应解析为 JSON */

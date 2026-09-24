@@ -7,11 +7,12 @@
 import { createRequire } from "node:module";
 
 import { initConfig } from "./config/index.ts";
-import { hasProxyAgent } from "./eh/index.ts";
+import { hasProxyAgent, observeRequestDuration } from "./eh/index.ts";
 import { openExternal } from "./platform/open-external.ts";
 import { generateToken, startServer, type RunningServer } from "./server.ts";
 import { createAuthService } from "./services/auth-service.ts";
 import { createConfigService } from "./services/config-service.ts";
+import { createDiagnosticsService } from "./services/diagnostics-service.ts";
 import { createDownloadService, defaultDownloadDirectory } from "./services/download-service.ts";
 import { createDetailStore } from "./services/detail-store.ts";
 import { createGalleryService } from "./services/gallery-service.ts";
@@ -74,6 +75,34 @@ async function main(): Promise<void> {
     const upstream = createUpstreamService(ctx, service, {
         logger: logs.logger("upstream"),
     });
+    /*
+     * 诊断：右上角那组状态图标。采样内存、磁盘探测、并发连接与各类错误，
+     * 活动的那几项经 SSE 推给界面。采样本身很轻：计数每 2 秒看一次，磁盘探测每 10 秒一次。
+     */
+    const diagnostics = createDiagnosticsService({
+        probeDirectory: ctx.paths.cacheDir,
+        logger: logs.logger("status"),
+    });
+    // 上游请求真实耗时 -> 诊断：判断「与上游站点的通信变慢」
+    observeRequestDuration((durationMs) => diagnostics.noteUpstream(durationMs));
+
+    /*
+     * 文件系统错误与内部错误也计进状态提示。图标是状态，错误本身仍按原来的路径提示，
+     * 这里只做归类：认得出 errno 的算文件系统异常。诊断自己写的那几行日志要排除，否则会自己触发自己。
+     */
+    const FS_ERRNO =
+        /\b(EACCES|EPERM|EROFS|EIO|ENOSPC|ENOTDIR|EISDIR|EBUSY|EMFILE|ENFILE|ENXIO|ESTALE|EDQUOT)\b/;
+    const classify = (text: string): void => {
+        if (FS_ERRNO.test(text)) {
+            diagnostics.noteFsError(text);
+        }
+    };
+    logs.onChange(({ level, message, tag }) => {
+        if (tag !== "status" && (level === "warn" || level === "error")) {
+            classify(message);
+        }
+    });
+
     // 详情缓存落盘，位于缓存目录的 gallery/ 下，重启不丢失
     const detailStore = createDetailStore({
         cacheDir: ctx.paths.cacheDir,
@@ -83,9 +112,16 @@ async function main(): Promise<void> {
         store: detailStore,
         logger: logs.logger("gallery"),
     });
-    // 启动时按默认条件拉取一次并写入缓存，界面第一次打开即可直接渲染；
-    // 不阻塞启动，失败只记日志，界面自己会再发一次检索
-    void gallery.warmSearch();
+    /*
+     * 启动时按默认条件拉取一次并写入缓存，界面第一次打开即可直接渲染。
+     * 关掉「自动搜索」就不预热：这类工具不该不打招呼就去上游拉内容（设置 > 搜索，默认关闭）。
+     * 不阻塞启动，失败只记日志，界面自己会再发一次检索。
+     */
+    if (ctx.user.get().search.auto) {
+        void gallery.warmSearch();
+    } else {
+        logs.append("info", "自动搜索已关闭：启动不预热，界面也不会自动铺默认结果");
+    }
     // 本地库：下载落盘目录、.ehbrowser 元数据与按页取图均由它负责
     const library = createLocalLibrary(ctx, { fallbackDirectory: defaultDownloadDirectory });
     // 储存空间：占用统计与缓存清理
@@ -97,6 +133,12 @@ async function main(): Promise<void> {
         // 快照用于本地库卡片离线展示，取不到不影响下载
         summarise: (gid, token, signal) => gallery.summaryOf(gid, token, signal),
         logger: logs.logger("download"),
+    });
+    // 后台下载的失败也归类一次：任务错误不在 HTTP 响应里，只能从这里拿
+    downloads.onChange((task) => {
+        if (task.error !== null && task.error !== "") {
+            classify(task.error);
+        }
     });
     downloads.recover();
     const auth = createAuthService(ctx, {
@@ -135,6 +177,7 @@ async function main(): Promise<void> {
         favorites,
         translate,
         logs,
+        diagnostics,
         token: generateToken(),
         version,
         port: options.port,
@@ -167,6 +210,7 @@ async function main(): Promise<void> {
         closing = true;
         logs.append("info", `正在关闭服务端，终止信号为 ${signal}`);
         try {
+            diagnostics.stop();
             await server.close();
             await ctx.close();
             // 最后等待日志落盘，否则进程退出快于写文件，日志尾部会丢失
@@ -180,6 +224,22 @@ async function main(): Promise<void> {
 
     process.on("SIGINT", () => void shutdown("SIGINT"));
     process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+    /*
+     * 内部错误：记一笔栈并让界面亮起「客户端内部错误」那个图标（本次运行内一直亮着）。
+     * 不在这里退出进程：这是个本地工具，正在下载/阅读时直接崩掉更糟；堆栈写进日志与终端，
+     * 图标上写的就是「请前往终端查看」。
+     */
+    process.on("uncaughtException", (error) => {
+        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+        logs.append("error", `未捕获的异常：${detail}`);
+        diagnostics.noteInternalError(detail, true);
+    });
+    process.on("unhandledRejection", (reason) => {
+        const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+        logs.append("error", `未处理的 Promise 拒绝：${detail}`);
+        diagnostics.noteInternalError(detail, true);
+    });
 }
 
 main().catch((error: unknown) => {

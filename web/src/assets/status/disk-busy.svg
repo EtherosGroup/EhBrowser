@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="132.85602" height="135.46667" viewBox="0 0 132.85602 135.46667">
+  <!-- 磁盘繁忙 B：盘片 + 环绕旋转箭头（自制，风格对齐 Apex 连接图标） -->
+  <path fill="none" stroke="#ff0000" stroke-width="11" stroke-linecap="round" d="M 60,24 A 48,48 0 1 0 108,72"/>
+  <path fill="#ff0000" fill-rule="evenodd" d="M 24,72 a 36,36 0 1,0 72,0 a 36,36 0 1,0 -72,0 Z M 36,72 a 24,24 0 1,0 48,0 a 24,24 0 1,0 -48,0 Z M 54,72 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0 Z"/>
+  <path fill="#ff0000" d="M 108,56 L 117,76 L 99,76 Z"/>
+</svg>

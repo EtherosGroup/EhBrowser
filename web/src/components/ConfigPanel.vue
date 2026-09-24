@@ -24,6 +24,7 @@ type ModuleKey =
     | "player"
     | "translate"
     | "safety"
+    | "search"
     | "download"
     | "log"
     | "storage";
@@ -136,6 +137,7 @@ const open = ref<Record<ModuleKey, boolean>>({
     player: false,
     translate: false,
     safety: false,
+    search: false,
     download: false,
     log: false,
     storage: false,
@@ -163,6 +165,9 @@ function moduleOfPath(path: string): ModuleKey {
     }
     if (path.startsWith("safety.")) {
         return "safety";
+    }
+    if (path.startsWith("search.")) {
+        return "search";
     }
     if (path.startsWith("log.")) {
         return "log";
@@ -210,6 +215,7 @@ async function save(): Promise<void> {
             viewer: value.viewer,
             translate: value.translate,
             safety: value.safety,
+            search: value.search,
             download: value.download,
             log: value.log,
             ui: value.ui,
@@ -578,6 +584,34 @@ onMounted(async () => {
                         词库来自 EhTagTranslation/Database
                         的发布包，按需下载到本机，程序本身不分发这些数据（数据遵循 CC BY-NC-SA
                         3.0）。没装词库时画师、角色、原作名不会被翻译。
+                    </p>
+                </div>
+            </div>
+        </details>
+
+        <details class="module" :open="open.search" @toggle="onToggle('search', $event)">
+            <summary><h2>搜索</h2></summary>
+            <div class="grid">
+                <div>
+                    <label>打开界面时自动搜索</label>
+                    <select v-model="setting.search.auto">
+                        <option :value="true">开启</option>
+                        <option :value="false">关闭</option>
+                    </select>
+                    <p class="muted hint">
+                        开启后：启动时预热一次检索，打开搜索页直接铺一份默认结果。
+                        关闭时（默认）不主动去上游拉内容，输入关键词后回车或点「搜索」才开始；
+                        从详情页选好标签点搜索仍会照常检索——那是你自己的操作
+                    </p>
+                </div>
+                <div>
+                    <label>进入页面时提示自动搜索</label>
+                    <select v-model="setting.search.hintEnabled">
+                        <option :value="true">开启</option>
+                        <option :value="false">关闭</option>
+                    </select>
+                    <p class="muted hint">
+                        每次打开页面时提一句自动搜索的当前状态（提示不自动消失，点一下才收起）
                     </p>
                 </div>
             </div>

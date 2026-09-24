@@ -18,6 +18,7 @@ import { normalizeQuery } from "../tag-search.ts";
 import { GRID_COLUMN_CHOICES, columnsLabel, gridColumns } from "../ui-prefs.ts";
 import { describeApiError, request } from "../api.ts";
 import { messenger } from "../messenger.ts";
+import { autoSearch, searchSettingsReady } from "../auto-search.ts";
 import { clearSearchHistory, rememberSearch, searchHistory } from "../search-history.ts";
 import {
     categoryLabel,
@@ -86,6 +87,20 @@ function onFiltersFocusOut(event: FocusEvent): void {
 /** 敲字就取消「检索后收起」的状态，建议区跟着回来 */
 watch(query, () => {
     panelDismissed.value = false;
+});
+
+/** 自动搜索关闭且没有内容可展示：结果区显示一句说明，等用户自己发起 */
+const idle = ref(false);
+
+/** 结果区的空文案：区分「自动搜索关闭」「正在搜索」与「筛出来是空的」 */
+const emptyText = computed(() => {
+    if (busy.value) {
+        return "";
+    }
+    if (idle.value) {
+        return "自动搜索已关闭（设置 > 搜索）：输入关键词后回车或点「搜索」开始";
+    }
+    return "没有符合条件的结果，换个关键词或放宽筛选试试";
 });
 
 /** 浮层里有没有要展示的东西 */
@@ -257,8 +272,14 @@ async function run(target = 1): Promise<void> {
  * 打开搜索页时展示的内容。
  * 地址中带了条件时按条件处理（缓存正好是同一组才直接铺，否则发起检索）；
  * 地址未带条件时先看缓存，缓存中有什么就铺什么，没有才请求一次默认列表。
+ *
+ * 「自动搜索」关掉后（设置 > 搜索，默认关闭）不主动发起检索：
+ * 缓存里有东西照旧铺出来（那不算新检索），没有就给一句说明，等用户自己点搜索或回车。
+ * 地址带条件时仍然检索——那是用户从详情页带过来的意图，不是我们自作主张。
  */
 async function restore(): Promise<void> {
+    // 等设置读回来（最多 2 秒）：否则 autoSearch 还是默认值，会把「开着」误判成「关着」
+    await Promise.race([searchSettingsReady, new Promise((resolve) => setTimeout(resolve, 2_000))]);
     const fromUrl = readQuery();
     const hasUrlConditions = Object.keys(route.query).length > 0;
     busy.value = true;
@@ -275,7 +296,12 @@ async function restore(): Promise<void> {
         applyCache(cached);
         return;
     }
-    await run(fromUrl);
+    if (hasUrlConditions || autoSearch.value) {
+        await run(fromUrl);
+        return;
+    }
+    // 自动搜索关闭：不请求上游，把输入框让给用户
+    idle.value = true;
 }
 
 onMounted(() => {
@@ -428,7 +454,7 @@ onMounted(() => {
             :to="cardTarget"
             :columns="gridColumns"
             :preview-paused="inputFocused"
-            :empty-text="busy ? '' : '没有符合条件的结果，换个关键词或放宽筛选试试'"
+            :empty-text="emptyText"
         />
 
         <footer v-if="items.length > 0">

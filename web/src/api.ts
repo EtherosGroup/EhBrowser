@@ -75,6 +75,8 @@ export function libraryImageUrl(gid: number, resolution: string, page: number): 
 /** 与 api/routes.ts 的方法表一致；改动路由会在此处编译报错 */
 const ROUTE_METHODS: Readonly<Record<ApiRouteName, string>> = {
     "system.health": "GET",
+    "system.status": "GET",
+    "debug.status": "POST",
     "system.shutdown": "POST",
     "system.events": "GET",
     "config.get": "GET",

@@ -15,6 +15,15 @@ export type {
     SystemHealth,
 } from "./common.ts";
 
+export { STATUS_FLAGS } from "./status.ts";
+export type {
+    DebugStatusInput,
+    DebugStatusResult,
+    SystemStatusFlag,
+    SystemStatusMetrics,
+    SystemStatusState,
+} from "./status.ts";
+
 export { GALLERY_CATEGORIES, GALLERY_LANGUAGES, SEARCH_PAGE_LIMIT } from "./gallery.ts";
 export type {
     ArchiveCatalog,

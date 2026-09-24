@@ -5,13 +5,15 @@
 
 import { ref } from "vue";
 
-import type { LogEntry } from "../../src/api/index.ts";
+import type { LogEntry, SystemStatusState } from "../../src/api/index.ts";
 
 import { describeApiError, request, subscribeEvents } from "./api.ts";
+import { applyStatusState } from "./diagnostics.ts";
 import { refreshDownloads } from "./downloads.ts";
 import { mergeLogEntry } from "./logs.ts";
 import { messenger } from "./messenger.ts";
 import { escapeHintEnabled, escapeUrl } from "./safety.ts";
+import { autoSearch, autoSearchHintEnabled, markSearchSettingsReady } from "./auto-search.ts";
 import { ensureTagDatabase, tagTranslation } from "./translation.ts";
 import { applyUpdateProgress, mergeUpdateEntry } from "./updater.ts";
 
@@ -52,6 +54,10 @@ export async function refreshStatus(): Promise<void> {
         void ensureTagDatabase();
         escapeUrl.value = snapshot.setting.safety.url;
         escapeHintEnabled.value = snapshot.setting.safety.hintEnabled;
+        // 自动搜索与其提示的开关：保存配置后立即生效，搜索页下次打开就按新值走
+        autoSearch.value = snapshot.setting.search.auto;
+        autoSearchHintEnabled.value = snapshot.setting.search.hintEnabled;
+        markSearchSettingsReady();
     } catch (caught) {
         messenger.error(describeApiError(caught));
     }
@@ -62,6 +68,10 @@ export function startEventStream(): () => void {
     return subscribeEvents({
         "server.ready": (data) => {
             pushEvent(`server.ready ${String((data as { version: string }).version)}`);
+        },
+        "system.status": (data) => {
+            // 状态项集合变化时服务端才推，界面据此显示右上角那组图标
+            applyStatusState(data as SystemStatusState);
         },
         "config.changed": () => {
             pushEvent("config.changed");

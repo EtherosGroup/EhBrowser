@@ -9,11 +9,13 @@ import type {
     ConfigSnapshot,
     DownloadTask,
     EpochSeconds,
+    SystemStatusState,
     UpdateEntry,
 } from "./dto/index.ts";
 
 export const API_EVENT_NAMES = [
     "server.ready",
+    "system.status",
     "config.changed",
     "auth.changed",
     "download.changed",
@@ -29,6 +31,8 @@ export interface ApiEventPayloads {
         readonly version: string;
         readonly startedAt: EpochSeconds;
     };
+    /** 客户端状态提示。状态项集合有变化时才推，界面据此显示右上角那组图标 */
+    readonly "system.status": SystemStatusState;
     readonly "config.changed": {
         /** 附带新快照，省去一次 GET */
         readonly snapshot: ConfigSnapshot;

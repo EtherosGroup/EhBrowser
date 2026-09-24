@@ -31,7 +31,8 @@ export function hintEscape(): void {
     hinted = true;
     messenger.info(escapeHintText(), {
         position: messenger.POSITION.BOTTOM_RIGHT,
-        autoClose: 8000,
+        // 不自动关闭：点一下才收起，与自动搜索的提示一致
+        autoClose: false,
     });
 }
 
