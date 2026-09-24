@@ -80,6 +80,8 @@ const fullscreen = ref(false);
 const paused = ref(false);
 /** 浮层控制栏是否可见 */
 const barVisible = ref(false);
+/** 指针是否停在控制栏（含它上面的设置弹层）或底部热区上。停在上面时不收起 */
+const barHover = ref(false);
 /** 自动播放设置弹层。 */
 const tuning = ref(false);
 /** 进度条是否正在拖动 */
@@ -315,10 +317,17 @@ function showBar(): void {
     }
 }
 
-/** 浮层控制栏在指针离开后收起，延时避免指针擦边就消失。 */
+/*
+ * 收起浮层控制栏：指针闲下来 BAR_HIDE_MS 后隐藏，延时避免指针擦边就消失。
+ * 指针正停在控制栏或底部热区上时不排收起，否则鼠标停在按钮上也会被收走。
+ */
 function scheduleHideBar(): void {
     if (hideTimer !== null) {
         clearTimeout(hideTimer);
+        hideTimer = null;
+    }
+    if (barHover.value) {
+        return;
     }
     hideTimer = setTimeout(() => {
         barVisible.value = false;
@@ -327,13 +336,50 @@ function scheduleHideBar(): void {
     }, BAR_HIDE_MS);
 }
 
+/** 指针在舞台上移动：显示控制栏并重新计时，停住不动就自动收起。 */
+function onStageMove(): void {
+    if (!fullscreen.value) {
+        return;
+    }
+    showBar();
+    scheduleHideBar();
+}
+
+/** 指针进入控制栏或底部热区：显示，并一直留着直到指针离开。 */
+function onBarEnter(): void {
+    barHover.value = true;
+    showBar();
+}
+
+/** 指针离开控制栏与热区：重新排收起。 */
+function onBarLeave(): void {
+    barHover.value = false;
+    scheduleHideBar();
+}
+
 function toggleFullscreen(): void {
     fullscreen.value = !fullscreen.value;
     if (fullscreen.value) {
+        // 进入时先露一下，让用户知道控制栏在哪，随后自动收起
         showBar();
         scheduleHideBar();
     }
 }
+
+/*
+ * 退出网页全屏（按钮或 Esc）时清掉浮层状态。
+ * 指针可能正停在底部热区上，热区随全屏一起消失，不会再有 pointerleave 来复位。
+ */
+watch(fullscreen, (value) => {
+    if (value) {
+        return;
+    }
+    barHover.value = false;
+    if (hideTimer !== null) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+    }
+});
 
 watch(
     () => props.startPage,
@@ -406,7 +452,7 @@ onUnmounted(() => {
             class="stage"
             :class="{ zoomed: zoom !== 1 }"
             @wheel="onWheel"
-            @pointermove="fullscreen ? showBar() : undefined"
+            @pointermove="onStageMove"
         >
             <!-- 左右翻页按钮，图标为自绘 SVG -->
             <button
@@ -440,14 +486,25 @@ onUnmounted(() => {
             >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
             </button>
+
+            <!--
+                网页全屏时的底部热区。控制栏收起后指针移进这一条就把控制栏叫回来，
+                不必先在画面上晃动鼠标。热区只在全屏时存在，且位于控制栏之下（z-index 更低）。
+            -->
+            <div
+                v-if="fullscreen"
+                class="hotzone"
+                @pointerenter="onBarEnter"
+                @pointerleave="onBarLeave"
+            />
         </div>
 
-        <!-- 控制栏。普通模式位于图片下方；网页全屏时浮在底部中央，悬停才出现。 -->
+        <!-- 控制栏。普通模式位于图片下方；网页全屏时浮在底部中央，悬停或指针移动时才出现。 -->
         <div
             class="controls"
             :class="{ floating: fullscreen, shown: !fullscreen || barVisible }"
-            @pointerenter="showBar"
-            @pointerleave="scheduleHideBar"
+            @pointerenter="onBarEnter"
+            @pointerleave="onBarLeave"
         >
             <span class="count">{{ page }}/{{ pageCount }}</span>
 
@@ -503,12 +560,8 @@ onUnmounted(() => {
 
             <div class="tune">
                 <button class="icon" title="自动播放设置" @click="tuning = !tuning">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
-                        <path
-                            d="M4 12h2M18 12h2M12 4v2M12 18v2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4"
-                        />
-                    </svg>
+                    <!-- 设置图标取自 iconfont（与下载页左下角的设置入口同一个字形），不再自绘 -->
+                    <i class="iconfont icon-setting" aria-hidden="true" />
                 </button>
                 <div v-if="tuning" class="popover">
                     <label>
@@ -660,6 +713,16 @@ onUnmounted(() => {
     grid-template-columns: 68px 1fr 68px;
 }
 
+/* 网页全屏时的底部热区：指针移进来就显示控制栏，见 onBarEnter */
+.hotzone {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 90px;
+    z-index: 1;
+}
+
 .frame {
     display: grid;
     place-items: center;
@@ -789,6 +852,11 @@ onUnmounted(() => {
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+/* 图标字体。大小与同一排的 SVG 相当，颜色跟随按钮（hover 时一起变主色） */
+.icon .iconfont {
+    font-size: var(--font-size-lg);
 }
 
 .icon.on {

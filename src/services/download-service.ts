@@ -286,6 +286,7 @@ export function createDownloadService(
      * 图片页（showpage）本身不需要登录，因此没有账号也能把整本下下来。
      * 代价是要逐页向上游要地址，而上游限流严格（默认 5 秒一次），页数多时很慢。
      * 支持续传：目录里已经下好的页一律留着不重下，只补缺的那些（见 prepareResume）。
+     * 每下一张之前还会再核一次磁盘（见循环内的 pageBytes），快照之后才出现的文件同样跳过。
      */
     async function runPageTask(id: string, row: Row, controller: AbortController): Promise<void> {
         const quality = row.resolution === "pages-org" ? "org" : "res";
@@ -314,6 +315,8 @@ export function createDownloadService(
         }
 
         let pageToken: string | undefined;
+        /** pageToken 是哪一页的 token。跳页之后它就不再属于下一页，不能接着传下去 */
+        let tokenPage = 0;
         // 速度：与归档下载一样按「这次的增量 / 距上次的间隔」算
         let lastBytes = bytes;
         let lastAt = Date.now();
@@ -325,9 +328,30 @@ export function createDownloadService(
                 // 已经下过的页不重下：图片页请求贵（上游限流），下过就保留。
                 continue;
             }
-            const item = await options.gallery.imagePage(row.gid, row.token, page, pageToken);
+            /*
+             * 每张之前再核一次磁盘。上面那份快照是任务开始时扫的，中途目录还可能多出文件
+             * （上一次没跑完留下的、手工放进去的、另一个任务写的），只认快照就会白下一遍。
+             * 已有的成品按它的实际大小计入进度，然后跳过这一页。
+             */
+            const existing = await options.library.pageBytes(location.folder, page);
+            if (existing > 0) {
+                have.add(page);
+                bytes += existing;
+                done = Math.max(done, page);
+                lastBytes = bytes;
+                lastAt = Date.now();
+                patchRow(id, { pages_done: done, bytes_done: bytes });
+                continue;
+            }
+            /*
+             * 图片页 token 只认「上一张的 nextToken」：上一页恰好是这一页的前一页时它才属于这一页。
+             * 中间跳过页之后就对不上了，这时交给 imagePage 按页号自己解析（结果按 20 页一批缓存）。
+             */
+            const carriedToken = tokenPage === page - 1 ? pageToken : undefined;
+            const item = await options.gallery.imagePage(row.gid, row.token, page, carriedToken);
             if (item.nextPageToken !== null) {
                 pageToken = item.nextPageToken;
+                tokenPage = page;
             }
             const url =
                 quality === "org" && item.originalImageUrl !== null

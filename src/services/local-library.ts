@@ -129,6 +129,12 @@ export interface LocalLibrary {
      * 逐页下载的续传依赖它：已有的页不重新下载，进度也从此处起算。
      */
     existingPages(folder: string): Promise<readonly ExistingPage[]>;
+    /**
+     * 第 page 页在目录里已有的成品有多少字节，没有（或为空文件）返回 0。
+     * 逐页下载每下一张之前问一次：只看下载开始时的那份快照，会把扫描之后才出现的文件重下一遍。
+     * 按页号认，不认扩展名，因此上游换了图床扩展名也不会在同一页留下两个文件。
+     */
+    pageBytes(folder: string, page: number): Promise<number>;
     /** 读取下载标记；不存在、内容损坏或不属于这一版时返回 null */
     downloadState(folder: string): Promise<DownloadState | null>;
     /** 开始下载时写入标记，供同一版被打断后重来时识别 */
@@ -383,6 +389,39 @@ export function createLocalLibrary(ctx: ConfigContext, options: LocalLibraryOpti
         return result;
     }
 
+    /**
+     * 第 page 页已有的字节数。逐页下载每张之前调用，用来跳过已经在盘上的页。
+     * 与 existingPages 一样绕开页索引缓存：下载中目录一直在变，缓存里的快照会骗人。
+     */
+    async function pageBytes(folder: string, page: number): Promise<number> {
+        const path = join(root(), folder);
+        let names: string[];
+        try {
+            names = await readdir(path);
+        } catch {
+            return 0;
+        }
+        for (const name of names) {
+            const matched = PAGE_FILE.exec(name);
+            if (matched === null || Number(matched[1]) !== page) {
+                continue;
+            }
+            if (!IMAGE_EXTENSIONS.has(matched[2]!.toLowerCase())) {
+                continue;
+            }
+            try {
+                const bytes = (await stat(join(path, name))).size;
+                if (bytes > 0) {
+                    return bytes;
+                }
+            } catch {
+                // 文件在此期间被删除等情况，按不存在处理
+                continue;
+            }
+        }
+        return 0;
+    }
+
     async function downloadState(folder: string): Promise<DownloadState | null> {
         let text: string;
         try {
@@ -595,6 +634,7 @@ export function createLocalLibrary(ctx: ConfigContext, options: LocalLibraryOpti
         write,
 
         existingPages,
+        pageBytes,
         downloadState,
         beginDownload,
         endDownload,
