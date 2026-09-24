@@ -12,7 +12,7 @@ import { refreshDownloads } from "./downloads.ts";
 import { mergeLogEntry } from "./logs.ts";
 import { messenger } from "./messenger.ts";
 import { escapeHintEnabled, escapeUrl } from "./safety.ts";
-import { loadTagDatabase, tagTranslation } from "./translation.ts";
+import { ensureTagDatabase, tagTranslation } from "./translation.ts";
 import { applyUpdateProgress, mergeUpdateEntry } from "./updater.ts";
 
 /** 服务端版本，取自 system.health */
@@ -46,12 +46,10 @@ export async function refreshStatus(): Promise<void> {
             ? `${proxy.protocol}://${proxy.host}:${proxy.port}`
             : "未启用";
         // 标签翻译开关与避险设置取自配置，保存配置后各处立即生效
-        const translateChanged = tagTranslation.value !== snapshot.setting.translate.tags;
         tagTranslation.value = snapshot.setting.translate.tags;
-        // 开关刚打开（或刚保存配置）时将词库载入内存；关闭后释放，不占用内存
-        if (tagTranslation.value && translateChanged) {
-            void loadTagDatabase();
-        }
+        // 词库既供显示译名，也供搜索框的标签补全，因此只要装了就载入一次（ensure 内部只请求一次）；
+        // 关掉显示开关只是不显示译名，词库仍留在内存里
+        void ensureTagDatabase();
         escapeUrl.value = snapshot.setting.safety.url;
         escapeHintEnabled.value = snapshot.setting.safety.hintEnabled;
     } catch (caught) {

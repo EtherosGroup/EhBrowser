@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter, type RouteLocationRaw } from "vue-router";
 
 import {
@@ -14,10 +14,19 @@ import {
 } from "../../../src/api/index.ts";
 import GalleryGrid from "./GalleryGrid.vue";
 import { searchGroupTitle, type GalleryGroup } from "../gallery-groups.ts";
+import { normalizeQuery } from "../tag-search.ts";
 import { GRID_COLUMN_CHOICES, columnsLabel, gridColumns } from "../ui-prefs.ts";
 import { describeApiError, request } from "../api.ts";
 import { messenger } from "../messenger.ts";
-import { categoryLabel, tagName } from "../translation.ts";
+import { clearSearchHistory, rememberSearch, searchHistory } from "../search-history.ts";
+import {
+    categoryLabel,
+    suggestionQuery,
+    suggestionText,
+    tagName,
+    tagSuggestions,
+    type TagSuggestion,
+} from "../translation.ts";
 
 const route = useRoute();
 const router = useRouter();
@@ -32,6 +41,60 @@ const hasNext = ref(false);
 const busy = ref(false);
 /** 当前这批结果对应的关键词。标题按它生成，不受输入框中正在输入的内容影响 */
 const searchedKey = ref("");
+/** 关键词输入框。点建议或历史后把焦点放回去，方便接着改 */
+const input = ref<HTMLInputElement | null>(null);
+
+/**
+ * 正在输入的那一段：最后一个空格或逗号之后的部分。
+ * 空格与逗号都是标签之间的分隔，所以敲下逗号就等于「开始写下一个标签」，
+ * 建议区随之换到下一段——这就是逗号触发下一次关联搜索的做法。
+ */
+const TOKEN_TAIL = /[^\s,]*$/;
+
+/** 输入框里正在写的这一段标签 */
+const typingToken = computed(() => query.value.slice(query.value.search(TOKEN_TAIL)));
+
+/** 按正在输入的那一段从词库里找标签 */
+const suggestions = computed<readonly TagSuggestion[]>(() => tagSuggestions(typingToken.value));
+
+/*
+ * 悬浮层的显示时机：焦点落在筛选框里的时候才出来（搜索历史尤其如此，默认不显示，点输入框才出来）。
+ * 用 focusin / focusout 而不是 input 的 blur：点浮层里的按钮时焦点仍在这个框里，不该因此收起。
+ */
+const boxFocused = ref(false);
+/** 检索发出后先收起浮层，让新结果完整露出来；再敲字或再点输入框时又出来 */
+const panelDismissed = ref(false);
+/**
+ * 输入框有没有焦点。这时用户是在用鼠标点输入框下方的标签建议，
+ * 指针从结果区上经过不该弹出卡片预览，因此把网格的悬浮预览暂停掉。
+ */
+const inputFocused = ref(false);
+
+function onFiltersFocusIn(): void {
+    boxFocused.value = true;
+}
+
+function onFiltersFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    const box = event.currentTarget;
+    if (next instanceof Node && box instanceof Node && box.contains(next)) {
+        return;
+    }
+    boxFocused.value = false;
+}
+
+/** 敲字就取消「检索后收起」的状态，建议区跟着回来 */
+watch(query, () => {
+    panelDismissed.value = false;
+});
+
+/** 浮层里有没有要展示的东西 */
+const panelOpen = computed(
+    () =>
+        boxFocused.value &&
+        !panelDismissed.value &&
+        (suggestions.value.length > 0 || searchHistory.value.length > 0),
+);
 
 /** 分组：搜索页只有一组，排行榜之类的多组页面另作处理 */
 const groups = computed<GalleryGroup[]>(() => [
@@ -54,6 +117,40 @@ function toggleCategory(category: GalleryCategory): void {
     } else {
         selected.value = selected.value.filter((item) => item !== category);
     }
+}
+
+/** 把光标放到输入框末尾。等 v-model 把新值刷进 DOM 之后再定位 */
+function focusInput(): void {
+    void nextTick(() => {
+        const node = input.value;
+        if (node === null) {
+            return;
+        }
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+    });
+}
+
+/**
+ * 把一段文字填进输入框。
+ * 关键词里可以写多个标签（`language:chinese 男` 或 `男娘,fem`），因此只替换正在写的这一段，
+ * 前面的标签与它们之间的分隔符都留着；这一段为空（结尾是分隔符）时相当于追加。
+ */
+function insert(text: string): void {
+    const current = query.value;
+    query.value = `${current.slice(0, current.search(TOKEN_TAIL))}${text}`;
+    focusInput();
+}
+
+/** 点一条标签建议：换成上游的检索写法填进去 */
+function pickTag(item: TagSuggestion): void {
+    insert(suggestionQuery(item));
+}
+
+/** 点一条历史：整条填回输入框 */
+function pickHistory(text: string): void {
+    query.value = text;
+    focusInput();
 }
 
 /** 把当前条件写回地址，返回搜索页时据此恢复 */
@@ -92,7 +189,8 @@ function readQuery(): number {
 
 /** 当前输入框里的条件换算成检索参数。page 与 limit 每次都写明，与缓存的比对才能对上 */
 function currentQuery(target: number): GallerySearchQuery {
-    const trimmed = query.value.trim();
+    // 输入框里允许用逗号分隔标签，送上游前统一整成空格（见 normalizeQuery）
+    const trimmed = normalizeQuery(query.value);
     return {
         ...(trimmed === "" ? {} : { query: trimmed }),
         ...(language.value === "" ? {} : { language: language.value as GalleryLanguage }),
@@ -133,7 +231,14 @@ function applyCache(entry: GallerySearchCache): void {
 
 async function run(target = 1): Promise<void> {
     busy.value = true;
+    // 浮层先收起来：新结果马上铺出来，别让它盖在上面
+    panelDismissed.value = true;
     const asked = currentQuery(target);
+    // 记进历史：记用户自己敲的那一行（保留逗号写法），语种与分类是筛选项，不重复记
+    const typed = query.value.trim();
+    if (asked.query !== undefined && typed !== "") {
+        rememberSearch(typed);
+    }
     try {
         const result = await request("galleries.search", { query: asked });
         searchedKey.value = asked.query ?? "";
@@ -181,20 +286,20 @@ onMounted(() => {
 
 <template>
     <div class="panel">
-        <section class="filters">
+        <section class="filters" @focusin="onFiltersFocusIn" @focusout="onFiltersFocusOut">
             <div class="row">
                 <div class="grow">
                     <label for="q">关键词</label>
                     <input
                         id="q"
+                        ref="input"
                         v-model="query"
                         placeholder="留空表示不限定"
+                        @click="panelDismissed = false"
+                        @focus="inputFocused = true"
+                        @blur="inputFocused = false"
                         @keyup.enter="run(1)"
                     />
-                    <p class="muted hint">
-                        标签写成 namespace:tag；多词标签加引号，尾部 $
-                        表示精确匹配该标签。详情页选中标签后会自动填成这种写法
-                    </p>
                 </div>
                 <div>
                     <label for="lang">语言</label>
@@ -251,6 +356,16 @@ onMounted(() => {
                 </button>
             </div>
 
+            <!--
+                语法说明放在整行下面。原来它跟在 input 那一列的后面，而这一行是底部对齐的，
+                input 因此被顶高一截，与同一行的下拉框、按钮不在一条水平线上。
+            -->
+            <p class="muted hint">
+                标签写成 namespace:tag；多词标签加引号，尾部 $ 表示精确匹配该标签；
+                多个标签用空格或逗号分开（逗号只是为了好接着往下写，搜索时按空格处理）。
+                详情页选中标签后会自动填成这种写法
+            </p>
+
             <div class="cats">
                 <button
                     v-for="category in GALLERY_CATEGORIES"
@@ -262,6 +377,49 @@ onMounted(() => {
                     {{ categoryLabel(category) }}
                 </button>
             </div>
+
+            <!--
+                标签建议与搜索历史：悬浮在结果之上，不占结果的位置（.filters 是定位父级）。
+                两块都只在有条目时出现，顺序是标签在上、历史在下。
+            -->
+            <div v-if="panelOpen" class="drop">
+                <!-- 标签建议：按输入框里的内容从词库（未装词库时用内置常用表）里找，点一条填进输入框 -->
+                <div v-if="suggestions.length > 0" class="pick">
+                    <p class="muted line">标签</p>
+                    <ul class="list">
+                        <li v-for="item in suggestions" :key="`${item.namespace}:${item.raw}`">
+                            <button
+                                type="button"
+                                :title="`填入 ${suggestionQuery(item)}`"
+                                @click="pickTag(item)"
+                            >
+                                {{ suggestionText(item) }}
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- 搜索历史：点一条整条填回输入框 -->
+                <div v-if="searchHistory.length > 0" class="pick">
+                    <p class="muted line">
+                        搜索历史
+                        <button type="button" class="clear" @click="clearSearchHistory()">
+                            清空
+                        </button>
+                    </p>
+                    <ul class="list">
+                        <li v-for="item in searchHistory" :key="item">
+                            <button
+                                type="button"
+                                :title="`填入 ${item}`"
+                                @click="pickHistory(item)"
+                            >
+                                {{ item }}
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
         </section>
 
         <GalleryGrid
@@ -269,6 +427,7 @@ onMounted(() => {
             :groups="groups"
             :to="cardTarget"
             :columns="gridColumns"
+            :preview-paused="inputFocused"
             :empty-text="busy ? '' : '没有符合条件的结果，换个关键词或放宽筛选试试'"
         />
 
@@ -282,6 +441,8 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .filters {
+    /* 悬浮层（.drop）以它为定位父级 */
+    position: relative;
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -305,10 +466,79 @@ onMounted(() => {
     gap: 6px;
 }
 
-/* 关键词下面的一行说明：标签语法不直观，在此处说明 */
+/* 条件行下面的一行说明：标签语法不直观，在此处说明 */
 .hint {
-    margin: 4px 0 0;
+    margin: 10px 0 0;
     font-size: var(--font-size-sm);
+}
+
+/*
+ * 标签建议与搜索历史：悬浮在结果网格之上（绝对定位，不参与布局），
+ * 因此结果的位置不随它的出现而移动。层级取 --z-floating，盖住卡片但低于悬浮预览与弹窗。
+ */
+.drop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    left: 0;
+    z-index: var(--z-floating);
+    /* 两块都放大后（各 280px）仍装得下；窗口矮时整层自己滚 */
+    max-height: min(80vh, 660px);
+    padding: 10px 12px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+/* 两块都是「标题 + 可滚动的按钮列表」，每行一个 */
+.pick + .pick {
+    margin-top: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+}
+
+.pick .line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    font-size: var(--font-size-sm);
+}
+
+.pick .clear {
+    padding: 0 6px;
+    font-size: var(--font-size-xs);
+}
+
+/* 条目多时滚动。约 9 行，剩下的自己滚 */
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 280px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+/* 行也放高一点：一屏能看的条数不变太多，但点起来更从容 */
+.list button {
+    display: block;
+    width: 100%;
+    padding: 5px 10px;
+    overflow: hidden;
+    font-size: var(--font-size-md);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.list button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .cats {

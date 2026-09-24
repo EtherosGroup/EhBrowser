@@ -282,10 +282,11 @@ web/                 前端源码（Vue 单文件组件 + Vite），构建产物
 ├── player-cache.ts 播放器预热集合：模块级单例 + 本地存储，按预算做 LRU
 ├── downloads.ts   下载任务的界面侧状态，导航栏徽标与下载页共用
 ├── translation.ts 标签与类别的中文翻译：开关、词库的取用
-├── translation-db.ts 内置翻译表与词库的合并查询（纯函数）
+├── translation-db.ts 内置翻译表与词库的合并查询、按输入反查标签（纯函数）
 ├── logs.ts        日志的界面侧状态：目录、文件名与最近若干条
 ├── welcome.ts     首次打开的提醒开关（只记在 localStorage，不落配置）
-├── tag-search.ts  选中的标签 -> 搜索框里的关键词（纯函数）
+├── tag-search.ts  选中的标签 -> 搜索框里的关键词、用户输入 -> 送上游的写法（纯函数）
+├── search-history.ts 搜索历史（localStorage，最多 20 条）
 ├── messenger.ts   弹出消息封装
 ├── progress.ts    顶部加载条封装
 ├── sprite-cache.ts 精灵图预载与结果广播
@@ -312,8 +313,8 @@ scripts/
 └── portable.mjs   打便携包：组装目录 + 自己按 PKZIP 格式写 zip（不引第三方依赖）
 
 .github/workflows/
-├── release.yml        推 v* 标签 -> 构建 + 打便携包 -> 建 Release 并附上附件
-└── publish-npm.yml    发 npm（默认手动触发，先演练再发布，用 Trusted Publishing）
+├── release.yml        推 v* 标签 -> 构建 + 打便携包 -> 建 Release 并附上附件 -> 调用 publish-npm.yml 发 npm
+└── publish-npm.yml    发 npm（可被 release.yml 调用，也可手动触发演练；用 Trusted Publishing）
 ```
 
 依赖方向单向：`main -> api -> services -> config -> platform`。上游客户端 `eh/` 独立于以上各层，只由 `services/` 调用。
@@ -363,7 +364,7 @@ scripts/
 - 导航栏最右侧是下载入口，未结束的任务在右上角显示红色数量角标。任务列表由 `web/src/downloads.ts` 单例持有，`status.ts` 收到 `download.changed` 就重取，下载页与徽标共用同一份。
 - 改了设置项的代码之后需要重启服务：界面每次都取最新构建的产物，服务端是启动时加载好的进程。服务端运行旧代码时不认识界面新增的字段（例如 `ui.cachedGalleries`），而设置页会把整份 setting 回传，服务端判定为「未声明字段」，整个保存被拒。为此 `web/src/settings-patch.ts` 做了两道处理：进设置页时比对快照，缺字段就在页面顶部挂一条提示（写明「重启 EhBrowser 服务」）；保存时把这些字段剔除，其余设置照常保存。重启后字段正常（配置结构也会自动迁移）。
 - 配置分「网络 / 浏览 / 播放器 / 翻译 / 避险 / 下载 / 日志」七组（浏览组含默认站点、缩略图尺寸、每页条目数、语言标签、最多缓存画廊）。播放器组含查看模式、图片质量、向后预加载张数、缓存上限（默认 512MB）、同时加载张数、自动播放与间隔、播完循环；翻译组含标签翻译开关与词库的下载/删除；日志组含写文件开关与日志目录。新增字段要同时改 `config/schema.ts`（类型/默认值/字段表）、版本号、`config/migrations.ts` 的迁移步骤，以及 `api/dto/settings.ts`。迁移只补新字段，旧值原样保留（v1->v2 补播放器与翻译，v2->v3 补避险，v3->v4 补日志，v4->v5 补详情缓存条数）。设置页支持 `/config?module=download` 这类深链，下载页左下角的设置按钮靠它直接展开对应分组。
-- 标签与类别的中文翻译分两层，都在 `web/src/translation.ts`：类别 11 项与命名空间全量，标签名以高频词为主（专有名词不翻），未收录的原样保留。开关读设置后写入 `tagTranslation`，保存配置即全局生效。搜索卡片、悬浮预览、详情页的类别与标签，以及搜索条件里的类别按钮与语言下拉，都经 `categoryLabel` / `tagParts` / `namespaceLabel` / `tagName` 取值。直接读原文的只有发往上游的检索关键词。
+- 标签与类别的中文翻译分两层，都在 `web/src/translation.ts`：类别 11 项与命名空间全量，标签名以高频词为主（专有名词不翻），未收录的原样保留。开关读设置后写入 `tagTranslation`，保存配置即全局生效。词库本身与这个开关无关：只要装了就在启动时载入一次（`ensureTagDatabase`），因为搜索框的标签补全要用它，关掉开关只是不显示译名。搜索卡片、悬浮预览、详情页的类别与标签，以及搜索条件里的类别按钮与语言下拉，都经 `categoryLabel` / `tagParts` / `namespaceLabel` / `tagName` 取值。直接读原文的只有发往上游的检索关键词。
     - 第一层是内置表（`translation-db.ts`）：常用标签与全部类别、命名空间，装完即用，不联网，覆盖不到的画师／角色／原作名不翻。
     - 第二层是词库：设置 > 翻译里的「下载/更新词库」从 [EhTagTranslation/Database](https://github.com/EhTagTranslation/Database)（EhViewer 系使用同一份数据）的发布包取 `db.text.json.gz`，剥掉简介只留「原文 -> 中文名」，存到 `<缓存目录>/translate/tags.json`（约 1.3MB，44262 条标签／13 个命名空间）。查询顺序是词库 -> 内置表 -> 原文，未安装词库时行为不变。
     - 数据不能打进仓库：它的许可是 CC BY-NC-SA 3.0（署名 + 非商业 + 相同方式共享），与本项目许可无关，也不受本项目许可覆盖。数据按需下载到用户机器，界面上标注出处，可一键删除。
@@ -389,7 +390,7 @@ scripts/
         - 超出预算时从最久没用过的那一头开始清，正在查看的窗口每次都 touch，不会被清除。改设置里的上限只做 `resize`，不重建集合。
     - 操作：← → 翻页，↑ ↓ 缩放，Shift+滚轮缩放，滚轮翻页（带节流），空格暂停/继续自动播放（仅开启自动播放时），Esc 退出网页全屏。网页全屏盖住整个页面，控制栏改为底部居中浮层（进出场有过渡），左上角显示 `1/32`，开启自动播放时右上角显示 `AUTO`。
     - 浮层控制栏的进出：进入全屏时先露一下再收起；之后指针在画面上移动就出现，停住 1.2 秒（`BAR_HIDE_MS`）自动收起；底部另有一条 90px 高的热区（`.hotzone`，只在全屏时存在，位于控制栏之下），指针移进去不必先晃动鼠标就能叫出控制栏。指针停在控制栏或热区上时不收起，离开后再计时。指针停在热区上时退出全屏（按钮或 Esc），热区随之消失、不会再收到 `pointerleave`，因此退出时统一复位（`watch(fullscreen)`）。
-    - 控制栏从左到右：进度、可拖动进度条、上一张、暂停/继续自动播放、下一张、自动播放开关、自动播放设置（间隔与循环）、图片翻译开关与设置（功能未实现，控件如实禁用）、收藏、下载。自动播放的三项直接写回 `viewer.autoplay`，设置页与播放器共用同一份状态。收藏按钮尚未接上收藏接口（接口已实现，详情页与本地画廊页都在用），点击后只提示一句，不计入收藏成功。
+    - 控制栏从左到右：进度、可拖动进度条、上一张、暂停/继续自动播放、下一张、自动播放开关、自动播放设置（间隔与循环）、图片翻译开关与设置（功能未实现，控件如实禁用）、收藏、下载。自动播放的三项直接写回 `viewer.autoplay`，设置页与播放器共用同一份状态。收藏与详情页、本地画廊页同一套做法：先读收藏夹，未收藏时放进第一个本地收藏夹并同步云端槽位 0，已收藏时把标记号改成 -1 再从本地夹移除（未登录也能用，云端那一步服务端只记日志）。详情里的 `favorite` 不会因为这次点击重新请求上游，因此本次结果记在本页的 `favoriteOverride` 里，换画廊时清掉。
     - 下载走 `Dialog`，文案按规格：标题「下载此画廊」、正文「要下载此画廊吗？共 N 页。」、按钮为取消与各分辨率的「下载{分辨率}{体积}」（体积取自 `galleries.archives`）。
 - 播放列表分两个，语义不同，不可混用：
     - 画廊播放列表（`galleryPlaylist`）是当前画廊的每一页，进画廊阅读时清空重建（情景 1）。本地副本一次铺满，网络副本边解析边补。
@@ -424,6 +425,18 @@ scripts/
 - 详情页标签可多选，选中后右下角出现搜索入口（按钮上直接显示将要搜索的那一行关键词），点击回到搜索页，关键词填进搜索框并搜索。
 - 页面级请求都带 AbortSignal：离开路由会中断在途请求，避免返回后仍在加载、进度条不结束。
 - 搜索条件写入地址栏（`query`、`language`、`minRating`、`categories`、`page`），从详情页返回会照着恢复并重取结果。
+- 搜索页的输入框下面依次是两块可选区域（都只在有条目时出现），顺序即「关键词 / 标签 / 搜索历史」：
+    - 标签建议：按输入框里**正在写的那一段**（最后一个空格或逗号之后）在词库里找标签（`web/src/translation-db.ts` 的 `searchTags`，反查索引在装词库时建好，4 万条标签一次查找约 1～4ms）。显示成 `译名（命名空间: 原文）`，每行一个；点一条就把上游的检索写法填进输入框（`namespace:"多词标签"$`，写法与 `tag-search.ts` 一致）。
+    - 匹配同时比中文名与原文，优先级按输入的文字决定：写中文时是在找译名（先比中文名），写拉丁字母时是在写原文（先比原文），因此「男」先给「男性 / 男同 / 男娘」，「fem」先给「女性 / 男娘 / 女性化」而不是中文名里恰好含 fem 的条目。同档按译名与原文的长短排，短的在前。
+    - 输入里带冒号时按命名空间缩小范围：`male:fem` 只在该空间里找，`male:` 直接列出该空间的标签。
+    - 写入时只替换正在写的那一段（`[^\s,]*$`），前面的标签与分隔符（如 `language:chinese 男`、`男娘,fem`）都留着，写完把光标放回末尾，方便接着加标签。
+    - 空格与逗号都算分隔，因此打完一个标签敲一个英文逗号就等于「开始写下一个标签」：建议区立刻换到逗号后面那一段，不用先删掉前面的内容。
+    - 送上游前把逗号统一换成空格（`tag-search.ts` 的 `normalizeQuery`）：上游按空格切词、官方搜索规则也写明逗号不作分隔符（实测逗号当下会被容忍，但不依赖这一点）。因此输入框里是 `f:milf,m:muscle`，实际检索的是 `f:milf m:muscle`。词库里没有标签名带逗号，这样换不会伤到标签本身。
+    - 搜索历史：`web/src/search-history.ts`，存在 localStorage（最多 20 条，重复的提到最前），只在发起检索时记录关键词，语种与分类这些筛选项不记。点一条整条填回输入框，右侧有「清空」。
+    - 两块列表都是 `max-height: 280px` + `overflow-y: auto`（约 9 行）：条目多时自己滚，不把结果网格推走；整层还有一道 `max-height: min(80vh, 660px)` 兜底。
+    - 词库未安装时标签建议用内置的常用表（约 200 条），功能不依赖词库是否存在。
+    - 输入框有焦点时结果网格的悬浮预览暂停（`GalleryGrid` 的 `previewPaused` 属性）：这时用户是在用鼠标点输入框下方的标签建议，指针从结果区上经过不该弹出卡片预览，卡片也不浮起。焦点离开输入框即恢复；预览已经展开时点回输入框会立刻收起（指针没动，落点判断不会再跑，因此由 `previewPaused` 的 watch 收尾）。
+    - 浮层的显隐看焦点：焦点落在筛选框里时才出现（点输入框，或点浮层里的按钮——用 `focusin` / `focusout` 判断，不用 `blur`，否则点浮层里的按钮会先把它自己收掉）。搜索历史尤其如此：默认不显示，点输入框才出来。检索发出后浮层先收起来让新结果完整露出来，再敲字或再点输入框时回来。
 - 检索结果留一份会话缓存，界面重进搜索页时先铺内容：
     - 服务端把「最后一次检索的条件 + 结果」写进缓存目录的 `temp/search.json`（原子写，权限 0600），读以内层内存为准，内存中没有时才读磁盘。应用启动时先删掉这个文件，再由预热检索重新写一份，因此缓存不跨重启。
     - 启动后立刻按默认条件（`{ page: 1, limit: SEARCH_PAGE_LIMIT }`）预热一次检索，不阻塞启动，失败只记一条 `[gallery] warn`。这次预热的 Promise 会登记下来：界面在还没有缓存时 `GET /api/galleries/cache` 会等它结束，避免同一份结果拉两次；最多等 12 秒（`WARMUP_WAIT_MS`），预热卡住时返回 null，界面再发起一次检索。其代价是上游不可达（例如尚未配置代理）时，界面需要先等待预热失败才会报错。
@@ -454,9 +467,11 @@ npm version minor                 # 改版本号并打本地附注标签（v1.0.
 git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .github/workflows/release.yml
 ```
 
-那条流水线按顺序做：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并把便携包作为附件上传。它只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时改为覆盖上传附件，可重入。
+那条流水线按顺序做：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并把便携包作为附件上传 -> **调用 `publish-npm.yml` 把这一版发到 npm**（`needs: portable`，Release 成了才发）。Release 那步只用仓库自带的 `GITHUB_TOKEN`，发 npm 那步用 Trusted Publishing 的 OIDC 临时凭证，都不需要密钥。同一标签重复推送时附件改为覆盖上传，npm 那步会先查该版本是否已发布、已发过就跳过，因此重复推标签不会变成失败记录。
 
-手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签。正式发版前验证产物时使用这条路径。
+手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
+
+发 npm 这一步是**调用** `.github/workflows/publish-npm.yml`，而不是把 `npm publish` 写进 `release.yml`：npm 的 Trusted Publisher 校验的是**真正执行发布那个工作流**的文件名，可复用工作流被调用时 GitHub 的 OIDC 令牌里 `job_workflow_ref` 指向被调用者，因此配置仍按 `publish-npm.yml` 有效。把发布步骤写进 `release.yml` 会让名字变成 `release.yml`，得去 npm 侧改配置才行。
 
 ### 便携包（`npm run release:portable`）
 
@@ -478,7 +493,9 @@ EhBrowser-1.0.0/
 
 ### 发到 npm
 
-`.github/workflows/publish-npm.yml` 默认只手动触发，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）。正式发布使用 npm 的 Trusted Publishing：在 npmjs.com 上打开包 -> Settings -> Trusted Publisher -> GitHub Actions，填仓库 `EtherosGroup/EhBrowser` 与工作流文件名 `publish-npm.yml`。之后通过 OIDC 获取临时凭证发布，自动带上 provenance 签名，不需要长期 token。设置完成后把该文件的触发条件从 `workflow_dispatch` 改成 `tags: ["v*"]`，即与 Release 一起自动执行。也可以在本地手动发布：
+`.github/workflows/publish-npm.yml` 有两种入口：推 `v*` 标签时由 `release.yml` 调用（`with: dry-run: false`，真正发布），或者手动触发——在 Actions 页面点 Run workflow / `gh workflow run publish-npm.yml`，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）。`workflow_call` 的 `dry-run` 默认也是 `true`：调用方忘了传时只会演练，不会误发。
+
+发布用 npm 的 Trusted Publishing：npmjs.com -> 你的包 -> Settings -> Trusted Publisher -> GitHub Actions，填仓库 `EtherosGroup/EhBrowser` 与工作流文件名 `publish-npm.yml`（当前用的就是这条，1.0.1 是这么发出去的，带 provenance 签名）。不需要长期 token；npm、Node 的版本要求（npm ≥ 11.5.1）由 `node-version: 24` 满足。也可以在本地手动发布：
 
 ```bash
 npm pack --dry-run          # 先看清单：应当只有 dist/ 与 README、LICENSE、package.json
@@ -498,7 +515,7 @@ npm publish --access public # prepublishOnly 会自动跑 npm run build
 
 `npm start` 启动服务并打开界面（默认 `http://localhost:7727/`，首次打开弹一条「这是免费软件」的提醒）。可用：搜索（含结果缓存与启动预热）；详情（含精灵图缩略图条与就地放大的灯箱，下载过的画廊用落盘的详情快照，本地浏览不请求上游）；日志（控制台 + 文件 + 服务页实时显示）；播放器（翻页、缩放、自动播放、网页全屏，本地副本零请求）；播放列表（用户列表持久化，重启不丢失）；全部预览；标签翻译（含按需下载的完整词库）；播放器与翻译设置；配置修改；账号登录与切换；归档下载与逐页下载（游客也能逐页下载，落盘为本地画廊目录，详情页快照一并存下）；本地库列表与本地取图；下载失败重试；更新检查；收藏（本地夹 / 云端槽位 / 更新标记号）；关闭服务。
 
-未实现或未验证：评分、排行榜、图片翻译未实现；播放器控制栏的收藏按钮尚未接上收藏接口（详情页与本地画廊页的收藏可用）；云端收藏夹的页面解析只做了降级处理，未对真实上游验证；归档下载的完整链路（需登录且消耗 GP）未验证。详见下文「未做与已知限制」。
+未实现或未验证：评分、排行榜、图片翻译未实现；云端收藏夹的页面解析只做了降级处理，未对真实上游验证；归档下载的完整链路（需登录且消耗 GP）未验证。详见下文「未做与已知限制」。
 
 已接入路由示例（`TOKEN` 取自启动页面注入的 `window.__EHBROWSER__.token`）：
 

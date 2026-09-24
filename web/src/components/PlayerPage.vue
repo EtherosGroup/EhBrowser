@@ -22,6 +22,7 @@ import {
 } from "../playlist.ts";
 import DownloadDialog from "./DownloadDialog.vue";
 import Player from "./Player.vue";
+import { addFavorite, favoriteFolders, loadFavorites } from "../favorites.ts";
 
 const props = defineProps<{ gid: number; token: string }>();
 
@@ -67,8 +68,13 @@ let signal = controller.signal;
 const pageCount = computed(() =>
     localResolution.value === null ? (detail.value?.pageCount ?? 0) : localPageCount.value,
 );
+/** 本次点击之后的收藏状态。null 表示还没点过，以详情里的 favorite 为准 */
+const favoriteOverride = ref<boolean | null>(null);
 const tracks = computed(() => provider.value?.tracks ?? []);
-const favorited = computed(() => (detail.value?.favorite?.slot ?? -1) >= 0);
+/** 详情里的 favorite 为 null（未登录、或不在任何夹里）时算未收藏 */
+const favorited = computed(
+    () => favoriteOverride.value ?? (detail.value?.favorite?.slot ?? -1) >= 0,
+);
 const downloaded = computed(() => localResolution.value !== null);
 
 /** 播放器设置的读取。配置改动经 SSE 回来时会重新走一遍 */
@@ -183,6 +189,8 @@ async function load(): Promise<void> {
     signal = controller.signal;
     error.value = "";
     detail.value = null;
+    // 换了画廊：上次点击记下的收藏状态作废，回到按详情判断
+    favoriteOverride.value = null;
     provider.value?.dispose();
     provider.value = null;
     page.value = Math.max(1, Number(route.query["page"] ?? 1) || 1);
@@ -247,9 +255,47 @@ function openDownload(): void {
     askDownload.value = true;
 }
 
-/** 收藏接口尚未实现，此处如实提示 */
-function favorite(): void {
-    messenger.info("收藏接口尚未实现");
+/**
+ * 收藏 / 取消收藏。与详情页、本地画廊页同一套做法：放进第一个本地收藏夹并同步云端槽位 0，
+ * 取消时把标记号改成 -1 再从本地夹移除。未登录也能用，云端那一步服务端只记日志。
+ * 详情页的 favorite 字段不会因为这次点击重新请求上游，因此本页自己记下结果。
+ */
+async function toggleFavorite(): Promise<void> {
+    const info = detail.value;
+    await loadFavorites();
+    const folder = favoriteFolders.value[0];
+    try {
+        if (favorited.value) {
+            if (folder === undefined) {
+                messenger.warning("没有可用的本地收藏夹");
+                return;
+            }
+            await request("favorites.items.slot", {
+                params: { folderId: folder.id, gid: props.gid },
+                body: { slot: -1 },
+            });
+            await request("favorites.items.remove", {
+                params: { folderId: folder.id, gid: props.gid },
+            });
+            favoriteOverride.value = false;
+            messenger.success("已取消收藏");
+            return;
+        }
+        const ok = await addFavorite({
+            gid: props.gid,
+            token: props.token,
+            title: info?.title ?? `#${props.gid}`,
+            thumbUrl: info?.thumbUrl ?? "",
+            pageCount: pageCount.value,
+            slot: 0,
+        });
+        if (ok) {
+            favoriteOverride.value = true;
+            messenger.success("已加入收藏夹");
+        }
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+    }
 }
 
 function backToDetail(): void {
@@ -308,7 +354,7 @@ onUnmounted(() => {
             @update:page="rememberPage"
             @need="(pages) => provider?.ensure(pages)"
             @autoplay="saveAutoplay"
-            @favorite="favorite"
+            @favorite="toggleFavorite"
             @download="openDownload"
             @detail="backToDetail"
         />

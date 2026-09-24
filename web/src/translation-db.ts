@@ -1,6 +1,7 @@
 /*
  * 内置翻译表与词库的查询。纯逻辑：不依赖 vue，也不发请求，便于单独验证。
  * 查询顺序：词库 -> 内置表 -> 原文。词库未装载时全部回落到内置表。
+ * 装载时另外建一份反查索引，供搜索框按输入内容找标签（searchTags）。
  */
 
 import type { TranslateDatabase } from "../../src/api/index.ts";
@@ -236,16 +237,65 @@ let namespaces: TranslateDatabase["namespaces"] | null = null;
 /** 无法确定命名空间时的兜底索引。同名标签在不同命名空间里译法不同的极少，这里取其一 */
 let flatTags: Readonly<Record<string, string>> = {};
 
+/** 搜索用的一条标签 */
+export interface TagSuggestion {
+    /** 命名空间原文（如 male）；内置表里的条目没有命名空间，为空串 */
+    readonly namespace: string;
+    /** 标签原文，一律小写 */
+    readonly raw: string;
+    /** 中文名 */
+    readonly label: string;
+}
+
+/** 一次最多给多少条建议。多了要滚动，太多也看不过来 */
+export const SUGGEST_LIMIT = 12;
+
+interface IndexedTag extends TagSuggestion {
+    /** 小写后的中文名，供匹配用。原本没有大写字母时与 label 是同一个字符串 */
+    readonly folded: string;
+}
+
+/** 反查索引：词库的全部标签加内置表里词库没有的那些 */
+let index: readonly IndexedTag[] = [];
+
+/** 大写字母。中文名基本没有大写，有才需要另存一份小写副本 */
+const UPPERCASE = /[A-Z]/;
+
+/** 汉字。用来判断用户是在写译名还是在写原文 */
+const CJK = /[\u3400-\u9fff\uf900-\ufaff]/;
+
 /** 替换词库。传入 null 表示回到内置表 */
 export function setDatabase(database: TranslateDatabase | null): void {
     namespaces = database?.namespaces ?? null;
     const flat: Record<string, string> = {};
-    for (const item of Object.values(database?.namespaces ?? {})) {
-        for (const [raw, name] of Object.entries(item.tags)) {
-            flat[raw] ??= name;
+    const entries: IndexedTag[] = [];
+    const named = new Set<string>();
+    for (const [namespace, item] of Object.entries(database?.namespaces ?? {})) {
+        for (const [raw, label] of Object.entries(item.tags)) {
+            flat[raw] ??= label;
+            named.add(raw);
+            entries.push({
+                namespace,
+                raw,
+                label,
+                folded: UPPERCASE.test(label) ? label.toLowerCase() : label,
+            });
         }
     }
+    // 内置表补齐词库里没有的条目（词库没装时整份索引就只有它），命名空间留空
+    for (const [raw, label] of Object.entries(TAG_LABELS)) {
+        if (named.has(raw)) {
+            continue;
+        }
+        entries.push({
+            namespace: "",
+            raw,
+            label,
+            folded: UPPERCASE.test(label) ? label.toLowerCase() : label,
+        });
+    }
     flatTags = flat;
+    index = entries;
 }
 
 /** 类别。类别不在词库中，只有内置表 */
@@ -263,4 +313,62 @@ export function tagText(name: string, namespace = ""): string {
     const key = name.toLowerCase();
     const fromDatabase = namespace === "" ? flatTags[key] : namespaces?.[namespace]?.tags[key];
     return fromDatabase ?? TAG_LABELS[key] ?? TAG_LABELS[name] ?? name;
+}
+
+/**
+ * 按输入内容找标签。中文名与原文都比一遍，因此「男」与「fem」都能找到东西。
+ * 输入的写法决定谁优先：写中文时是在找译名（先比中文名），写拉丁字母时是在写原文
+ * （先比原文），这样 fem 不会先给出一堆中文名里带 fem 的条目。
+ * 同档按译名长短与原文长短排，短的在前（「男娘」排在「男爵領」之前）。
+ * 输入里带冒号时（如 male:fem 或 male:）按命名空间缩小范围，与上游的检索写法一致。
+ */
+export function searchTags(query: string, limit = SUGGEST_LIMIT): readonly TagSuggestion[] {
+    const needle = query.trim().toLowerCase();
+    if (needle === "" || limit <= 0) {
+        return [];
+    }
+    const at = needle.indexOf(":");
+    const scope = at === -1 ? "" : needle.slice(0, at);
+    // 只输到冒号（male:）时列出该命名空间下的标签
+    const name = at === -1 ? needle : needle.slice(at + 1);
+    const byLabel = CJK.test(needle);
+
+    const hits: { entry: IndexedTag; rank: number }[] = [];
+    for (const entry of index) {
+        if (scope !== "" && !entry.namespace.startsWith(scope)) {
+            continue;
+        }
+        const inLabel = entry.folded.indexOf(name);
+        const inRaw = entry.raw.indexOf(name);
+        if (inLabel === -1 && inRaw === -1) {
+            continue;
+        }
+        // 0/1 开头命中，2/3 中间命中；两种写法各自的优先级见上面的注释
+        const first = byLabel ? [inLabel, inRaw] : [inRaw, inLabel];
+        const rank = first[0] === 0 ? 0 : first[0] !== -1 ? 1 : first[1] === 0 ? 2 : 3;
+        hits.push({ entry, rank });
+    }
+    hits.sort(
+        (a, b) =>
+            a.rank - b.rank ||
+            a.entry.label.length - b.entry.label.length ||
+            a.entry.raw.length - b.entry.raw.length ||
+            (a.entry.raw < b.entry.raw ? -1 : a.entry.raw > b.entry.raw ? 1 : 0),
+    );
+    return hits.slice(0, limit).map(({ entry }) => ({
+        namespace: entry.namespace,
+        raw: entry.raw,
+        label: entry.label,
+    }));
+}
+
+/** 建议项的展示文本：译名（命名空间: 原文） */
+export function suggestionText(item: TagSuggestion): string {
+    return `${item.label}（${item.namespace === "" ? item.raw : `${item.namespace}: ${item.raw}`}）`;
+}
+
+/** 建议项点进输入框时写入的检索词：空格加引号，尾部 $ 表示精确匹配这个标签 */
+export function suggestionQuery(item: TagSuggestion): string {
+    const name = item.raw.includes(" ") ? `"${item.raw}"` : item.raw;
+    return `${item.namespace === "" ? name : `${item.namespace}:${name}`}$`;
 }

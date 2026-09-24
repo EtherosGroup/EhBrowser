@@ -37,3 +37,13 @@ export function tagQuery(tags: readonly string[]): string {
         .filter((term) => term !== "")
         .join(" ");
 }
+
+/**
+ * 用户在输入框里敲的一行 -> 送上游的写法。
+ * 逗号是给输入用的分隔（打完一个标签接着写下一个，建议区随之换到下一段），上游按空格切词、
+ * 官方搜索规则也写明逗号不作分隔符，因此这里统一换成空格，并把连续分隔与首尾分隔收敛掉。
+ * 词库里没有标签名带逗号（44290 条一条都没有），所以这样换不会伤到标签本身。
+ */
+export function normalizeQuery(text: string): string {
+    return text.replace(/,/g, " ").replace(/\s+/g, " ").trim();
+}

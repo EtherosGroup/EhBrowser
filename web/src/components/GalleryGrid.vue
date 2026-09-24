@@ -61,6 +61,11 @@ const props = withDefaults(
         thumbHeight?: number;
         /** 一组里没有内容时显示的说明 */
         emptyText?: string;
+        /**
+         * 暂停悬浮预览。搜索页在输入框有焦点时打开它：这时用户正用鼠标去点输入框下方的
+         * 标签建议，指针从结果区上经过不该弹出预览。暂停期间卡片也不浮起。
+         */
+        previewPaused?: boolean;
     }>(),
     {
         mode: "browse",
@@ -68,6 +73,7 @@ const props = withDefaults(
         columns: 0,
         thumbHeight: 220,
         emptyText: "",
+        previewPaused: false,
     },
 );
 
@@ -277,31 +283,33 @@ function armTimer(card: HTMLElement): void {
 
 /** 指针所在的卡片发生变化时调用。计时与浮起都在这里统一处理，不在别处重复判断 */
 function setHover(card: HTMLElement | null): void {
+    // 暂停期间一律当作指针不在卡片上：不浮起、不计时、不展开
+    const target = props.previewPaused ? null : card;
     const previous = hoverCard;
-    if (previous === card) {
+    if (previous === target) {
         // 同一张卡片：计时若已被清掉（例如上一张卡片的预览刚退场完），需要重新安排，
         // 否则指针停在这张卡片上不会再展开。被 Esc 关闭的那张卡片除外，需移开后再回来
-        if (card !== null && card !== dismissed && card !== openCard && hoverTimer === null) {
-            armTimer(card);
+        if (target !== null && target !== dismissed && target !== openCard && hoverTimer === null) {
+            armTimer(target);
         }
         return;
     }
-    hoverCard = card;
+    hoverCard = target;
     clearHoverTimer();
-    if (card !== dismissed) {
+    if (target !== dismissed) {
         dismissed = null;
     }
-    hoveredGid.value = card === null ? null : Number(card.dataset["gid"]);
-    if (card === openCard) {
+    hoveredGid.value = target === null ? null : Number(target.dataset["gid"]);
+    if (target === openCard) {
         // 指针回到了正在退场的那张卡片上，此时继续展开
         if (closing) {
             resumePreview();
         }
-    } else if (card !== null) {
-        armTimer(card);
+    } else if (target !== null) {
+        armTimer(target);
     }
     setPop(previous);
-    setPop(card);
+    setPop(target);
 }
 
 /**
@@ -530,6 +538,21 @@ watch(
     () => {
         resetPreview();
         resetPops();
+    },
+);
+
+/*
+ * 暂停开关打开时立即收起：常见的情形是用户把鼠标停在某张卡片上、预览刚展开，
+ * 然后点进搜索框开始输入——此时指针没有移动，落点判断不会再跑，得由这里收尾。
+ */
+watch(
+    () => props.previewPaused,
+    (paused) => {
+        if (!paused) {
+            return;
+        }
+        setHover(null);
+        closePreview();
     },
 );
 
