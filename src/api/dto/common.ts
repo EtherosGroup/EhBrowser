@@ -47,6 +47,12 @@ export interface FieldIssue {
     readonly message: string;
 }
 
+/** 图片代理的查询参数。url 必须是上游图床地址（服务端有白名单），_token 是本地令牌 */
+export interface ProxyImageQuery {
+    readonly url: string;
+    readonly _token: string;
+}
+
 /** 关闭请求的受理结果。响应先回，进程随后自己退出 */
 export interface ShutdownResult {
     readonly closing: boolean;

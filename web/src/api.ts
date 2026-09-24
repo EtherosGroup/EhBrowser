@@ -76,6 +76,7 @@ export function libraryImageUrl(gid: number, resolution: string, page: number): 
 const ROUTE_METHODS: Readonly<Record<ApiRouteName, string>> = {
     "system.health": "GET",
     "system.status": "GET",
+    "proxy.image": "GET",
     "debug.status": "POST",
     "system.shutdown": "POST",
     "system.events": "GET",

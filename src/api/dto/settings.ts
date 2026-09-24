@@ -23,12 +23,24 @@ export interface ProxySetting {
     readonly hasCredentials: boolean;
 }
 
+/** 直连解析：只换 DNS，用于绕开本地 DNS 污染 */
+export interface DirectSetting {
+    readonly enabled: boolean;
+    /** 用内置种子表 */
+    readonly builtIn: boolean;
+    /** 允许 DoH 解析与刷新 */
+    readonly doh: boolean;
+    /** 自定义 hosts 文本，每行 `域名 = ip1, ip2` */
+    readonly hosts: string;
+}
+
 export interface NetworkSetting {
     /** 序列请求间隔；上游建议连续 4～5 次后等待约 5 秒 */
     readonly requestIntervalMs: number;
     readonly maxSequentialRequests: number;
     readonly requestTimeoutMs: number;
     readonly proxy: ProxySetting;
+    readonly direct: DirectSetting;
 }
 
 export interface ViewerSetting {

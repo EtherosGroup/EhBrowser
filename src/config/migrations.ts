@@ -93,6 +93,24 @@ export const USER_SETTING_MIGRATIONS: readonly Migration[] = [
             ...(data["search"] === undefined ? { search: { auto: false, hintEnabled: true } } : {}),
         }),
     },
+    {
+        // v7 增加直连解析（绕 DNS 污染）：默认关闭，内置表与 DoH 默认开
+        from: 6,
+        to: 7,
+        migrate: (data) => {
+            const network = (data["network"] ?? {}) as Record<string, unknown>;
+            return {
+                ...data,
+                schemaVersion: 7,
+                network: {
+                    ...network,
+                    ...(network["direct"] === undefined
+                        ? { direct: { enabled: false, builtIn: true, doh: true, hosts: "" } }
+                        : {}),
+                },
+            };
+        },
+    },
 ];
 
 export const AUTH_SETTING_MIGRATIONS: readonly Migration[] = [];

@@ -5,7 +5,7 @@
 
 import type { FieldSpec } from "./validate.ts";
 
-export const USER_SETTING_VERSION = 6;
+export const USER_SETTING_VERSION = 7;
 
 export interface ProxyConfig {
     readonly enabled: boolean;
@@ -15,12 +15,24 @@ export interface ProxyConfig {
     // 代理认证信息不在本文件，位于 auth_setting；settings 可对外展示
 }
 
+/** 直连解析：只换 DNS，用于绕开本地 DNS 污染。与代理互斥（有代理时不用它） */
+export interface DirectConfig {
+    readonly enabled: boolean;
+    /** 用内置种子表（src/eh/hosts.ts） */
+    readonly builtIn: boolean;
+    /** 允许用 DoH 解析并刷新；端点写死 IP，因此这一步自身不需要 DNS */
+    readonly doh: boolean;
+    /** 用户自定义 hosts：每行 `域名 = ip1, ip2`，# 开头为注释 */
+    readonly hosts: string;
+}
+
 export interface NetworkConfig {
     /** 上游限流建议：连续 4～5 次后等待约 5 秒 */
     readonly requestIntervalMs: number;
     readonly maxSequentialRequests: number;
     readonly requestTimeoutMs: number;
     readonly proxy: ProxyConfig;
+    readonly direct: DirectConfig;
 }
 
 export interface ViewerConfig {
@@ -115,6 +127,13 @@ export const USER_SETTING_DEFAULTS: UserSetting = {
             host: "127.0.0.1",
             port: 7897,
         },
+        direct: {
+            // 默认关闭：先按系统 DNS 走，用户遇到「能解析但不通」时再开
+            enabled: false,
+            builtIn: true,
+            doh: true,
+            hosts: "",
+        },
     },
     viewer: {
         mode: "mpv",
@@ -171,6 +190,11 @@ export const USER_SETTING_FIELDS: readonly FieldSpec[] = [
     { path: "network.proxy.protocol", kind: "enum", values: ["http", "socks5"] },
     { path: "network.proxy.host", kind: "string", minLength: 1, maxLength: 255 },
     { path: "network.proxy.port", kind: "int", min: 1, max: 65535 },
+    { path: "network.direct.enabled", kind: "boolean" },
+    { path: "network.direct.builtIn", kind: "boolean" },
+    { path: "network.direct.doh", kind: "boolean" },
+    // 自定义 hosts 是多行文本，长度给宽一点
+    { path: "network.direct.hosts", kind: "string", maxLength: 20000 },
     { path: "viewer.mode", kind: "enum", values: ["mpv", "single"] },
     { path: "viewer.imageQuality", kind: "enum", values: ["org", "res"] },
     { path: "viewer.preloadCount", kind: "int", min: 0, max: 20 },

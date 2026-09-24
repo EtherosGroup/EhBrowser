@@ -7,6 +7,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,7 +35,12 @@ import {
     type UpdateCheckTarget,
 } from "./api/index.ts";
 import { ConfigInvalidError } from "./config/index.ts";
-import { LoginRequiredError } from "./eh/index.ts";
+import {
+    LoginRequiredError,
+    isProxyableImageUrl,
+    openUpstreamStream,
+    rewriteUpstreamImageUrls,
+} from "./eh/index.ts";
 import { describeError, describeTransportError, errorCode } from "./platform/errors.ts";
 import type { AuthService } from "./services/auth-service.ts";
 import type { ConfigService } from "./services/config-service.ts";
@@ -53,6 +59,9 @@ const HOST = "127.0.0.1";
 /** 默认端口。取一个不常用的四位数：8787 常被其他调试服务占用，冲突时需要改配置或传 --port */
 const DEFAULT_PORT = 7727;
 const MAX_BODY_BYTES = 1024 * 1024;
+
+/** 图片代理的超时：比普通接口短，图卡住时早失败早提示 */
+const PROXY_TIMEOUT_MS = 30_000;
 
 export interface ServerOptions {
     readonly service: ConfigService;
@@ -114,6 +123,18 @@ const MATCHERS = buildMatchers();
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
     diagnosticsRef = options.diagnostics;
+    /*
+     * 直连解析开着时，把响应里的上游图片地址改写成 /api/proxy/image?url=…
+     * 只改「发给浏览器的响应」，不落库：代理地址带令牌、也随模式变化，存下来会脏数据。
+     */
+    const directEnabled = (): boolean => {
+        const network = options.service.snapshot().setting.network;
+        // 服务端只要能取到图（走修正后的解析，或走配置的代理），就让服务端代取：
+        // 浏览器那侧可能根本连不到图床（DNS 污染 / SNI 阻断），那时只有服务端这条路能出图。
+        return network.direct.enabled || network.proxy.enabled;
+    };
+    rewriteRef = (payload: unknown): unknown =>
+        directEnabled() ? rewriteUpstreamImageUrls(payload, options.token) : payload;
     const host = options.host ?? HOST;
     const requestedPort = options.port ?? DEFAULT_PORT;
     const staticDir = options.staticDir ?? (await resolveStaticDir());
@@ -178,6 +199,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ): Promise<void> {
         if (matched === null) {
             sendError(response, "not_found", `无此路由：${request.method} ${url.pathname}`);
+            return;
+        }
+
+        if (matched.name === "proxy.image") {
+            await handleProxyImage(response, url);
             return;
         }
 
@@ -568,6 +594,60 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         };
     }
 
+    /**
+     * 取一张上游图片并回给浏览器。开了直连解析时，界面里所有上游图片地址都会被改写成这条路，
+     * 这样图片也走服务端的解析（浏览器自己走系统 DNS，在 DNS 被污染的网络里会拿不到图）。
+     *
+     * 白名单只管上游图床域名：这是本机代取任意 URL 的入口，放开了就是 SSRF 跳板。
+     */
+    async function handleProxyImage(response: ServerResponse, url: URL): Promise<void> {
+        const target = url.searchParams.get("url") ?? "";
+        if (!isProxyableImageUrl(target)) {
+            sendError(response, "bad_request", `不允许代理这个地址：${target.slice(0, 120)}`);
+            return;
+        }
+
+        let upstream: Response;
+        try {
+            // 走传输层那条字节流入口：图片不能经文本解码，也不能整个读进内存
+            upstream = await openUpstreamStream({
+                url: target,
+                headers: { referer: "https://e-hentai.org/" },
+                timeoutMs: PROXY_TIMEOUT_MS,
+            });
+        } catch (error) {
+            const reason = describeError(error);
+            options.diagnostics?.noteUpstream(0);
+            sendError(
+                response,
+                "upstream_unavailable",
+                `图片代理取图失败：${reason}。若所在网络是 SNI 阻断型（直连握手即被重置），请改用代理`,
+            );
+            return;
+        }
+
+        if (upstream.status < 200 || upstream.status >= 300 || upstream.body === null) {
+            sendError(
+                response,
+                "upstream_unavailable",
+                `图片代理取图失败：HTTP ${upstream.status}`,
+            );
+            return;
+        }
+
+        response.writeHead(200, {
+            "content-type": upstream.headers.get("content-type") ?? "image/jpeg",
+            ...(upstream.headers.get("content-length") === null
+                ? {}
+                : { "content-length": upstream.headers.get("content-length") as string }),
+            // 同一次会话里重复翻页不必再回上游；图片本身在浏览器那头还会被缓存
+            "cache-control": "private, max-age=3600",
+        });
+        const body = Readable.fromWeb(upstream.body as never);
+        body.on("error", () => response.end());
+        body.pipe(response);
+    }
+
     function openEventStream(request: IncomingMessage, response: ServerResponse): void {
         response.writeHead(200, {
             "content-type": "text/event-stream; charset=utf-8",
@@ -676,6 +756,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         broadcast,
         async close() {
             diagnosticsRef = undefined;
+            rewriteRef = null;
             for (const client of clients) {
                 client.end();
             }
@@ -786,13 +867,21 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
-    const body = `${JSON.stringify(payload)}\n`;
+    const rewritten = rewriteRef === null ? payload : rewriteRef(payload);
+    const body = `${JSON.stringify(rewritten)}\n`;
     response.writeHead(status, {
         "content-type": "application/json; charset=utf-8",
         "content-length": Buffer.byteLength(body),
     });
     response.end(body);
 }
+
+/**
+ * 响应改写钩子。开了直连解析时，服务端要把响应里的上游图片地址改写成经本机代理的地址，
+ * 这样界面里的图片也走服务端的解析与传输，而不是浏览器拿系统 DNS 直取。
+ * sendJson 同样是模块级工具、被几十处调用，因此这里放一份引用；未启用时保持 null，不做任何遍历。
+ */
+let rewriteRef: ((payload: unknown) => unknown) | null = null;
 
 /**
  * 当前进程的诊断服务。sendError 是模块级工具、被几十处调用，逐个传参不值得，

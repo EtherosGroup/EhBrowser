@@ -31,6 +31,13 @@
     --placeholder-track: color-mix(in srgb, var(--line) 70%, transparent);
     --placeholder-fill: var(--accent);
 
+    /*
+     * 表单控件的标准高度。原生 select 比 input 矮一截，不定高度的话同一行里两者差 6px。
+     * 这是「控件本身多高」的统一口径；至于跨格子的对齐（标签、控件各成一条行带）由布局负责，
+     * 见 ConfigPanel 的字段网格（subgrid）。
+     */
+    --control-height: 2.8rem;
+
     /* 字号阶梯。基准为正文 1.2rem，其余每档加减 0.1rem，统一保留一位小数 */
     --font-size-xs: 0.8rem; /* 最小：角标、徽标 */
     --font-size-sm: 0.9rem; /* 次要说明 */
@@ -77,7 +84,8 @@ button:disabled {
 }
 
 input,
-select {
+select,
+textarea {
     background: var(--panel-2);
     color: var(--text);
     border: 1px solid var(--line);
@@ -87,8 +95,24 @@ select {
     width: 100%;
 }
 
+/*
+ * 高度统一。原生 select 比 input 矮一截（实测 39px vs 45px），同一行里一个 input 一个 select
+ * 就会看着不齐，设置页尤其明显。这里给两者定同一个高度；多行文本框不固定高度，但共用同一套
+ * 内边距、字体与最小高度，挨着放也对得上。
+ */
+input,
+select {
+    height: var(--control-height);
+}
+
+textarea {
+    min-height: var(--control-height);
+    resize: vertical;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
     outline: none;
     border-color: var(--accent);
 }

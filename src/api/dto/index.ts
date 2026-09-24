@@ -11,6 +11,7 @@ export type {
     FieldIssue,
     PageQuery,
     Paginated,
+    ProxyImageQuery,
     ShutdownResult,
     SystemHealth,
 } from "./common.ts";

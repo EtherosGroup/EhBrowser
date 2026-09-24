@@ -274,6 +274,13 @@ export const ROUTES = {
         requiresAccount: false,
     },
     // 图片要能直接放进 <img src>，令牌经 query 传递（与 EventSource 的处理一致）
+    "proxy.image": {
+        method: "GET",
+        path: "/api/proxy/image",
+        description: "经本机服务端取上游图片（开了直连解析时，上游图片地址会被改写到这里）",
+        requiresToken: true,
+        requiresAccount: false,
+    },
     "library.image": {
         method: "GET",
         path: "/api/library/:gid/:resolution/pages/:page",

@@ -143,6 +143,12 @@ function toWireSetting(setting: InternalUserSetting, auth: AuthSetting): WireUse
                 port: setting.network.proxy.port,
                 hasCredentials: auth.proxyAuth.username !== "",
             },
+            direct: {
+                enabled: setting.network.direct.enabled,
+                builtIn: setting.network.direct.builtIn,
+                doh: setting.network.direct.doh,
+                hosts: setting.network.direct.hosts,
+            },
         },
         viewer: {
             mode: setting.viewer.mode,

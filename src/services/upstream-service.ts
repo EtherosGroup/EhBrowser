@@ -6,7 +6,10 @@
 
 import { activeAccount, type ConfigContext } from "../config/index.ts";
 import {
-    clearProxyAgent,
+    clearDispatcher,
+    createDirectResolver,
+    parseHostsText,
+    setDirectResolver,
     gdata,
     gtoken,
     setProxyAgent,
@@ -47,13 +50,10 @@ export function createUpstreamService(
     const log = options.logger ?? (() => undefined);
 
     function applyNetwork(): void {
-        const { proxy, requestIntervalMs, maxSequentialRequests } =
+        const { proxy, requestIntervalMs, maxSequentialRequests, direct } =
             service.snapshot().setting.network;
 
-        if (!proxy.enabled) {
-            clearProxyAgent();
-            log("info", "代理未启用，按直连处理");
-        } else {
+        if (proxy.enabled) {
             const credentials = ctx.auth.get().proxyAuth;
             try {
                 setProxyAgent(
@@ -63,9 +63,30 @@ export function createUpstreamService(
                 );
                 log("info", `代理已启用：${proxy.protocol}://${proxy.host}:${proxy.port}`);
             } catch (error) {
-                clearProxyAgent();
+                clearDispatcher();
                 log("warn", `代理设置失败，按直连处理：${describeError(error)}`);
             }
+        } else if (direct.enabled) {
+            /*
+             * 没代理但开了直连解析：只换 DNS，不动 TLS（SNI 与 Host 还是原域名，证书照常校验）。
+             * 因此它治的是「DNS 污染」，治不了「SNI 阻断」——那种情况在设置页的测连通里会说明。
+             */
+            setDirectResolver(
+                createDirectResolver({
+                    userHosts: parseHostsText(direct.hosts),
+                    builtIn: direct.builtIn,
+                    doh: direct.doh,
+                    logger: log,
+                }),
+            );
+            log(
+                "info",
+                `直连解析已启用：内置表 ${direct.builtIn ? "开" : "关"}、DoH ${direct.doh ? "开" : "关"}` +
+                    (direct.hosts.trim() === "" ? "" : "、含自定义 hosts"),
+            );
+        } else {
+            clearDispatcher();
+            log("info", "代理未启用，直连解析也未启用：按系统 DNS 直连");
         }
 
         setRequestInterval(requestIntervalMs, maxSequentialRequests);

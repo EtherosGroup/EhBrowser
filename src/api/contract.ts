@@ -41,6 +41,7 @@ import type {
     PlaylistKeyParam,
     PlaylistProgressInput,
     PlaylistSnapshot,
+    ProxyImageQuery,
     FavoriteAddInput,
     FavoriteFolderInput,
     FavoriteFolderLocator,
@@ -203,6 +204,8 @@ export interface ApiRouteContract {
     };
     /** 取本地图片。返回图片本身而非信封，故 response 为 never；令牌经 query 传 */
     "library.image": { params: LocalImageLocator; response: never };
+    /** 走本机代理取上游图片。查询串为 url 与 _token，返回图片本身而非信封 */
+    "proxy.image": { query: ProxyImageQuery; response: never };
     /** 删除本地画廊，连同其目录 */
     "library.remove": { params: LocalGalleryLocator; response: ApiResponse<RemovedResult> };
     /** 更新检查的缓存与进度。只读，不触发检查 */

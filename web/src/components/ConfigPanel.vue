@@ -335,6 +335,51 @@ onMounted(async () => {
                         max="300000"
                     />
                 </div>
+
+                <div>
+                    <label>直连解析（绕开 DNS 污染）</label>
+                    <select v-model="setting.network.direct.enabled">
+                        <option :value="true">开启</option>
+                        <option :value="false">关闭</option>
+                    </select>
+                    <p class="muted hint">
+                        只换「域名解析成哪个 IP」，TLS 的 SNI 与 Host 仍是原域名（证书照常校验）。
+                        因此它治的是 DNS 污染；如果所在网络是 SNI 阻断（TCP
+                        通、握手一露域名就被重置），
+                        它也无能为力，那种情况需要代理。配了代理时这项不生效（解析由代理那头做）
+                    </p>
+                </div>
+                <div>
+                    <label>内置 IP 表</label>
+                    <select v-model="setting.network.direct.builtIn">
+                        <option :value="true">使用</option>
+                        <option :value="false">不使用</option>
+                    </select>
+                    <p class="muted hint">
+                        程序自带的一张种子表（E 站、图床、GitHub 等）；过期不要紧，下面还有 DoH 兜底
+                    </p>
+                </div>
+                <div>
+                    <label>DoH 解析</label>
+                    <select v-model="setting.network.direct.doh">
+                        <option :value="true">开启</option>
+                        <option :value="false">关闭</option>
+                    </select>
+                    <p class="muted hint">
+                        表里没有的域名（例如各 H@H 图床）走 DoH 问公共解析器，端点写死 IP、
+                        因此这一步自己不依赖 DNS；结果按 TTL 缓存
+                    </p>
+                </div>
+                <div class="wide">
+                    <label>自定义 hosts（每行 <code>域名 = ip1, ip2</code>，# 开头为注释）</label>
+                    <textarea v-model="setting.network.direct.hosts" rows="4" spellcheck="false" />
+                    <p class="muted hint">
+                        优先级最高。表里没有可用 IP 时可以自己填社区里流传的地址
+                    </p>
+                    <p v-if="issueOf('network.direct.hosts')" class="err">
+                        {{ issueOf("network.direct.hosts") }}
+                    </p>
+                </div>
             </div>
 
             <h3>代理</h3>
@@ -837,15 +882,60 @@ h3 {
     font-size: var(--font-size-lg);
 }
 
+/* 需要整行宽度的字段（例如多行 hosts） */
+.grid .wide {
+    grid-column: 1 / -1;
+}
+
+.grid textarea {
+    width: 100%;
+    font-family: ui-monospace, monospace;
+}
+
+/*
+ * 字段网格：一行里可能同时有 input 与 select，而原生 select 的内在高度比 input 矮（实测 39px vs 45px）。
+ * 跨格子对齐不能靠 flex——flex 的 stretch 只管自己的直接子元素，够不到隔壁格子里的控件。
+ * 因此这里把「标签 / 控件 / 说明 / 报错」四条横向带子交给 subgrid：格子只跨这四行，
+ * 于是同一行里所有格子的标签对齐、控件顶边对齐、并被拉到同一高度（控件高度由该带里最高者决定，
+ * 换字号也不用改数字）。不支持 subgrid 的浏览器走下面的普通排法，不会散。
+ */
 .grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-rows: repeat(4, auto);
     gap: 12px;
+}
+
+/* 回退（不支持 subgrid）：格子当普通块排，标签、控件、说明依次往下 */
+.grid > div {
+    display: grid;
+    align-content: start;
+}
+
+@supports (grid-template-rows: subgrid) {
+    /*
+     * subgrid 的行距是继承父网格的 gap 的，若沿用 12px，标签和它自己的控件会被拉开 16px，
+     * 比行与行之间还宽，读起来就不像一组了。所以行距收到 4px，行与行之间的距离改由格子的
+     * padding-bottom 撑出来（padding 撑的是最后一条行带，正好落在两组字段之间）。
+     */
+    .grid {
+        row-gap: 4px;
+    }
+
+    .grid > div {
+        grid-row: span 4;
+        display: grid;
+        grid-template-rows: subgrid;
+        align-content: normal;
+        padding-bottom: 8px;
+    }
 }
 
 .hint {
     font-size: var(--font-size-sm);
+    /* 行带已经负责纵向位置，这里只留一点呼吸 */
     margin: 2px 0 0;
+    align-self: start;
 }
 
 /* 服务端版本不匹配之类的提醒：显眼但不刺眼。 */

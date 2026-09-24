@@ -4,6 +4,10 @@
  */
 
 export * from "./http.ts";
+export * from "./doh.ts";
+export * from "./direct-dns.ts";
+export * from "./hosts.ts";
+export * from "./image-proxy.ts";
 export * from "./api.ts";
 export * from "./urls.ts";
 export * from "./html.ts";

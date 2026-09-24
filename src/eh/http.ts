@@ -9,7 +9,9 @@
  * ProxyAgent 只支持 HTTP/HTTPS 代理，SOCKS5 会直接报错。
  */
 
-import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+
+import type { DirectResolver } from "./direct-dns.ts";
 
 import { errorCode } from "../platform/errors.ts";
 
@@ -55,8 +57,20 @@ export function setProxyAgent(server: string, username?: string, password?: stri
 }
 
 /** 清除代理，恢复直连 */
-export function clearProxyAgent(): void {
+/**
+ * 清掉当前 dispatcher（代理与直连解析都归零）。
+ * 上游服务按配置决定装哪一个：有代理装代理；没代理但开了直连解析，就装它。
+ */
+export function clearDispatcher(): void {
     dispatcher = null;
+}
+
+/** 直连解析：把 DNS 换成「用户 hosts -> 内置表 -> DoH -> 系统」那套，用于绕开 DNS 污染 */
+export function setDirectResolver(resolver: DirectResolver | null): void {
+    dispatcher =
+        resolver === null
+            ? null
+            : (new Agent().compose(resolver.interceptor()) as unknown as Dispatcher);
 }
 
 /** 当前代理通道；未配置代理为 null。归档下载与本模块共用同一条通道 */
@@ -141,6 +155,33 @@ export async function callApiJson<T>(request: UpstreamRequest): Promise<T> {
             { cause: error },
         );
     }
+}
+
+/**
+ * 取上游的**原始字节流**，给图片代理这类不能经文本解码的场景用。
+ * `callApi` 会把响应解码成文本（undici 按 UTF-8 解），图片经那一趟会坏字节，所以另开这一条。
+ * 返回 undici 的响应对象，调用方自己决定怎么消费（图片代理是直接流给浏览器，不落内存）。
+ */
+export async function openUpstreamStream(request: UpstreamRequest): Promise<Response> {
+    const timeout = AbortSignal.timeout(request.timeoutMs ?? 30_000);
+    const signal =
+        request.signal === undefined ? timeout : AbortSignal.any([request.signal, timeout]);
+    const site = request.site ?? "e-hentai";
+    const response = await undiciFetch(request.url, {
+        method: request.method ?? "GET",
+        headers: {
+            referer: `${SITE_ORIGINS[site]}/`,
+            origin: SITE_ORIGINS[site],
+            ...(request.headers ?? {}),
+            ...(request.cookies === undefined
+                ? {}
+                : { cookie: buildCookieHeader(request.cookies) }),
+        },
+        signal,
+        redirect: request.followRedirects === true ? "follow" : "manual",
+        ...(dispatcher === null ? {} : { dispatcher }),
+    });
+    return response;
 }
 
 /** 跳过空值，拼为 Cookie 头 */
