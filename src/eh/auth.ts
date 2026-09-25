@@ -13,7 +13,7 @@ import {
     type EhCookieJar,
     type LoginCookies,
 } from "./cookies.ts";
-import { callApi, type UpstreamSite } from "./http.ts";
+import { callApi, isUpstreamChallenge, UpstreamChallengeError, type UpstreamSite } from "./http.ts";
 
 const FORUM_ORIGIN = "https://forums.e-hentai.org";
 const FORUM_LOGIN_URL = `${FORUM_ORIGIN}/index.php?act=Login&CODE=01`;
@@ -48,6 +48,13 @@ export async function forumLogin(credentials: LoginCredentials): Promise<LoginCo
 
     const picked = pickLoginCookies(cookiesOf(response));
     if (!hasLoginCookies(picked)) {
+        // 区分 无法通过人机校验 or 账号密码错误
+        if (isUpstreamChallenge(response)) {
+            throw new UpstreamChallengeError(
+                "登录失败：上游返回的是人机校验页（Cloudflare），当前出口节点过不去。" +
+                    "换一个节点再试，或先在自己的浏览器里登录、再把 Cookie 粘到账号页的「导入 Cookie」",
+            );
+        }
         throw new Error("登录失败：未获得凭据 Cookie。账号密码可能有误，或当前出口节点被上游拒绝");
     }
 

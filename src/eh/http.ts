@@ -201,13 +201,36 @@ export function isExAccessDenied(response: UpstreamResponse): boolean {
     return response.url.includes("?poni=no");
 }
 
-/** 需要登录的页面（归档、种子直链等）未登录时 302 到登录页，正文亦为登录表单 */
+/** 需登录的页面（归档、种子直链等）未登录时 302 到登录页，正文亦为登录表单 */
 export function isLoginRequired(response: UpstreamResponse): boolean {
     const location = response.headers["location"] ?? "";
     if (response.status >= 300 && response.status < 400) {
         return /login|bounce/i.test(location);
     }
     return /<title>[^<]*Login/i.test(response.text.slice(0, 2048));
+}
+
+/**
+ * 上游把人机校验页当正文返回（Cloudflare 的 challenge）。
+ * 
+ * 区分 出口节点被判有风险
+ * 
+ * 此时被cf认定为风险，不是账号密码错误
+ */
+export function isUpstreamChallenge(response: UpstreamResponse): boolean {
+    // Cloudflare 会显式加这个头，比正文匹配可靠
+    if ((response.headers["cf-mitigated"] ?? "") !== "") {
+        return true;
+    }
+    return /__cf_chl|challenge-platform|Just a moment/i.test(response.text.slice(0, 4096));
+}
+
+/** 上游用人机校验挡下了请求。服务端据此回上游不可用语义，而非 400*/
+export class UpstreamChallengeError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "UpstreamChallengeError";
+    }
 }
 
 /** 登录态不足导致的失败。服务端据此回 401 语义，而非上游不可达 */

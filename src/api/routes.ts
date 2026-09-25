@@ -162,6 +162,20 @@ export const ROUTES = {
         requiresToken: true,
         requiresAccount: false,
     },
+    "auth.browserLogin.start": {
+        method: "POST",
+        path: "/api/auth/browser-login",
+        description: "开一个真实浏览器窗口让用户登录（需要桌面会话与 Edge/Chrome）",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "auth.browserLogin.cancel": {
+        method: "POST",
+        path: "/api/auth/browser-login/cancel",
+        description: "取消正在进行的浏览器登录",
+        requiresToken: true,
+        requiresAccount: false,
+    },
 
     // ── 画廊 ───────────────────────────────────────────────
     "galleries.search": {

@@ -114,6 +114,8 @@ export function createConfigService(ctx: ConfigContext): ConfigService {
                 igneousStale: isIgneousStale(account),
                 // 里站可达性尚未探测，接入上游请求后填充。
                 exAccessible: null,
+                // 浏览器登录的会话在账号服务里；这一份是没有账号服务时的兜底
+                browserLogin: { phase: "idle", message: "", startedAt: null },
             };
         },
 

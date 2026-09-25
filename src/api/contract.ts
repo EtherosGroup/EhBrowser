@@ -11,6 +11,7 @@ import type {
     AccountUpdateInput,
     ArchiveCatalog,
     AuthStatus,
+    BrowserLoginInput,
     CancelDownloadResult,
     ConfigSnapshot,
     DebugStatusInput,
@@ -145,6 +146,13 @@ export interface ApiRouteContract {
     };
     "auth.accounts.activate": {
         params: { accountId: string };
+        response: ApiResponse<AuthStatus>;
+    };
+    "auth.browserLogin.start": {
+        body: BrowserLoginInput;
+        response: ApiResponse<AuthStatus>;
+    };
+    "auth.browserLogin.cancel": {
         response: ApiResponse<AuthStatus>;
     };
 

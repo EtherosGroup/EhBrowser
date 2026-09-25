@@ -37,6 +37,7 @@ import {
 import { ConfigInvalidError } from "./config/index.ts";
 import {
     LoginRequiredError,
+    UpstreamChallengeError,
     isProxyableImageUrl,
     openUpstreamStream,
     rewriteUpstreamImageUrls,
@@ -408,6 +409,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 }
                 case "auth.accounts.activate": {
                     sendJson(response, 200, ok(await auth.activateAccount(accountId)));
+                    return;
+                }
+                case "auth.browserLogin.start": {
+                    const body = (await readJsonBody(request)) as Parameters<
+                        AuthService["startBrowserLogin"]
+                    >[0];
+                    // 立刻返回：窗口开着的这段时间在服务端只能等，不该占着 HTTP 响应
+                    sendJson(response, 200, ok(auth.startBrowserLogin(body)));
+                    return;
+                }
+                case "auth.browserLogin.cancel": {
+                    sendJson(response, 200, ok(auth.cancelBrowserLogin()));
                     return;
                 }
                 default: {
@@ -1481,6 +1494,10 @@ function classifyError(error: unknown): ApiErrorCode {
     }
     if (error instanceof ConfigInvalidError) {
         return "config_invalid";
+    }
+    // 请求被上游人机校验拦截
+    if (error instanceof UpstreamChallengeError) {
+        return "upstream_unavailable";
     }
     const name = error instanceof Error ? error.name : "";
     if (name === "TimeoutError" || errorCode(error).startsWith("UND_ERR") || name === "TypeError") {

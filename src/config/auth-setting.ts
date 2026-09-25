@@ -14,7 +14,6 @@ import {
     AUTH_SETTING_FIELDS,
     type Account,
     type AuthSetting,
-    type EhCookies,
 } from "./schema.ts";
 
 export const AUTH_SETTING_FILENAME = "auth_setting.json";
@@ -34,15 +33,6 @@ export function createAuthSettingStore(
         mode: 0o600,
         logger: options.logger,
     });
-}
-
-/** cookie 是否完整。结构校验属于 schema，此处仅检查取值 */
-export function isCompleteCookies(cookies: EhCookies): boolean {
-    return (
-        cookies.ipbMemberId.trim() !== "" &&
-        cookies.ipbPassHash.trim() !== "" &&
-        cookies.igneous.trim() !== ""
-    );
 }
 
 /** igneous 有效期；超过一半视为临近过期 */

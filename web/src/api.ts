@@ -93,6 +93,8 @@ const ROUTE_METHODS: Readonly<Record<ApiRouteName, string>> = {
     "auth.accounts.update": "PATCH",
     "auth.accounts.remove": "DELETE",
     "auth.accounts.activate": "POST",
+    "auth.browserLogin.start": "POST",
+    "auth.browserLogin.cancel": "POST",
     "galleries.search": "GET",
     "galleries.detailCache": "GET",
     "galleries.detailCache.clear": "DELETE",

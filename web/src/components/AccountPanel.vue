@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
-import type { AccountSummary, AuthStatus } from "../../../src/api/index.ts";
+import type { AccountSummary, AuthStatus, BrowserLoginPhase } from "../../../src/api/index.ts";
 import { describeApiError, request } from "../api.ts";
+import { parsePastedCookies } from "../cookie-text.ts";
+import Dialog from "./Dialog.vue";
 import { messenger } from "../messenger.ts";
 
 const status = ref<AuthStatus | null>(null);
@@ -17,6 +19,102 @@ const manualLabel = ref("");
 const manualMemberId = ref("");
 const manualPassHash = ref("");
 const manualIgneous = ref("");
+
+/** 粘贴区。它只负责把整串 Cookie 拆进下面三个字段，字段本身仍可手改 */
+const pasted = ref("");
+const ignoredCookies = ref<readonly string[]>([]);
+
+/** 两份凭据 cookie 缺一不可；igneous 由服务端在导入后补取，所以不算门槛 */
+const credentialReady = computed(
+    () => manualMemberId.value !== "" && manualPassHash.value !== "",
+);
+
+const showRecognition = computed(
+    () => pasted.value.trim() !== "" || manualMemberId.value !== "" || manualPassHash.value !== "",
+);
+
+watch(pasted, (text) => {
+    if (text.trim() === "") {
+        ignoredCookies.value = [];
+        return;
+    }
+    const result = parsePastedCookies(text);
+    manualMemberId.value = result.cookies.ipbMemberId;
+    manualPassHash.value = result.cookies.ipbPassHash;
+    manualIgneous.value = result.cookies.igneous;
+    ignoredCookies.value = result.ignored;
+});
+
+// ###[浏览器登录]####################################
+
+const browserPhase = computed<BrowserLoginPhase>(() => status.value?.browserLogin.phase ?? "idle");
+const browserNote = computed(() => status.value?.browserLogin.message ?? "");
+const browserBusy = computed(
+    () => browserPhase.value === "launching" || browserPhase.value === "waiting",
+);
+/** 开窗前的确认弹窗：窗口会抢走焦点，先说清接下来会发生什么 */
+const askBrowserLogin = ref(false);
+
+/*
+ * 窗口开着的时候只有服务端知道进度（挑战过没过、用户登到哪一步）。这段时间很短（最多几分钟），
+ * 而且只在用户主动发起时才有，所以用短轮询而不是为此常驻第二条 SSE 连接 ——
+ * 本项目对每个标签页的并发连接数是计较的（见 README 的已知限制）。
+ */
+let pollTimer: number | null = null;
+
+function stopBrowserPolling(): void {
+    if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
+async function pollBrowserLogin(): Promise<void> {
+    try {
+        const wasBusy = browserBusy.value;
+        const next = await request("auth.status");
+        status.value = next;
+        if (wasBusy && !browserBusy.value) {
+            stopBrowserPolling();
+            accounts.value = [...(await request("auth.accounts.list"))];
+            const { phase, message } = next.browserLogin;
+            if (phase === "succeeded") {
+                messenger.success(message);
+            } else if (phase === "failed" || phase === "timeout") {
+                messenger.warning(message);
+            }
+        }
+    } catch (caught) {
+        stopBrowserPolling();
+        messenger.error(describeApiError(caught));
+    }
+}
+
+function startBrowserLogin(): void {
+    void (async () => {
+        busy.value = true;
+        try {
+            status.value = await request("auth.browserLogin.start", {
+                body: { site: site.value },
+            });
+            // 状态拿到「已受理」之后才开始轮询，免得抢在服务端置位之前空转
+            stopBrowserPolling();
+            pollTimer = window.setInterval(() => void pollBrowserLogin(), 1500);
+        } catch (caught) {
+            messenger.error(describeApiError(caught));
+        } finally {
+            busy.value = false;
+        }
+    })();
+}
+
+function cancelBrowserLogin(): void {
+    void run(async () => {
+        status.value = await request("auth.browserLogin.cancel");
+    }, "已取消浏览器登录");
+}
+
+onUnmounted(stopBrowserPolling);
 
 async function load(): Promise<void> {
     try {
@@ -49,9 +147,14 @@ function login(): void {
     }, "登录完成");
 }
 
-function importCookies(): void {
-    void run(async () => {
-        await request("auth.accounts.create", {
+/*
+ * 导入不套 run()：igneous 有没有取到决定这条提示该是成功还是警告，
+ * 而 run() 的文案是在动作开始前就定下来的
+ */
+async function importCookies(): Promise<void> {
+    busy.value = true;
+    try {
+        const account = await request("auth.accounts.create", {
             body: {
                 label: manualLabel.value === "" ? "导入的账号" : manualLabel.value,
                 site: site.value,
@@ -62,10 +165,25 @@ function importCookies(): void {
                 },
             },
         });
+        pasted.value = "";
+        ignoredCookies.value = [];
+        manualLabel.value = "";
         manualMemberId.value = "";
         manualPassHash.value = "";
         manualIgneous.value = "";
-    }, "账号已导入");
+        await load();
+        if (account.igneousUpdatedAt === null) {
+            messenger.warning(
+                "账号已导入，但没取到 igneous：外站照常，里站不可用。换出口节点后重新导入即可",
+            );
+        } else {
+            messenger.success("账号已导入，igneous 已取回");
+        }
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+    } finally {
+        busy.value = false;
+    }
 }
 
 function logout(): void {
@@ -87,7 +205,12 @@ function remove(id: string): void {
 }
 
 onMounted(() => {
-    void load();
+    // 页面重载时可能正有一个会话在进行，把轮询接上
+    void load().then(() => {
+        if (browserBusy.value) {
+            pollTimer = window.setInterval(() => void pollBrowserLogin(), 1500);
+        }
+    });
 });
 </script>
 
@@ -118,6 +241,8 @@ onMounted(() => {
         <h2>账号密码登录</h2>
         <p class="muted">
             登录在论坛域完成，Cookie 保存在服务端。取不到 igneous 时通常需要更换出口节点。
+            若提示「上游返回的是人机校验页」，说明当前节点过不了 Cloudflare 的人机校验，
+            换密码没用 —— 请改用下面的「导入 Cookie」。
         </p>
         <div class="grid">
             <div>
@@ -141,6 +266,23 @@ onMounted(() => {
                 登录
             </button>
             <button :disabled="busy" @click="logout">清除登录态</button>
+        </div>
+
+        <div class="browser-login">
+            <button :disabled="busy || browserBusy" @click="askBrowserLogin = true">
+                用浏览器登录
+            </button>
+            <button v-if="browserBusy" :disabled="busy" @click="cancelBrowserLogin">取消</button>
+            <span
+                v-if="browserNote !== ''"
+                class="note"
+                :class="{
+                    ok: browserPhase === 'succeeded',
+                    bad: browserPhase === 'failed' || browserPhase === 'timeout',
+                }"
+            >
+                {{ browserNote }}
+            </span>
         </div>
 
         <h2>已有账号</h2>
@@ -180,35 +322,104 @@ onMounted(() => {
         <p v-else class="muted">暂无账号。</p>
 
         <h2>导入 Cookie</h2>
-        <p class="muted">从别处已有的登录态导入，三项均为必填。</p>
+        <p class="muted">
+            在平时用的浏览器里登录后，把 Cookie 粘进来就行。只有 ipb_member_id 与 ipb_pass_hash
+            是必填的；igneous 留空时服务端会自己去取，取不到只影响里站，外站照常。
+        </p>
+        <div class="paste">
+            <label>粘贴 Cookie</label>
+            <textarea
+                v-model="pasted"
+                rows="3"
+                spellcheck="false"
+                placeholder="ipb_member_id=123456; ipb_pass_hash=1a2b3c…; igneous=…"
+            />
+        </div>
+
+        <ul v-if="showRecognition" class="recog">
+            <li :class="manualMemberId === '' ? 'bad' : 'good'">
+                ipb_member_id —— {{ manualMemberId === "" ? "缺失（必填）" : "已识别" }}
+            </li>
+            <li :class="manualPassHash === '' ? 'bad' : 'good'">
+                ipb_pass_hash —— {{ manualPassHash === "" ? "缺失（必填）" : "已识别" }}
+            </li>
+            <li :class="manualIgneous === '' ? 'meh' : 'good'">
+                igneous —— {{ manualIgneous === "" ? "未提供，导入后由服务端取" : "已识别" }}
+            </li>
+            <li v-if="ignoredCookies.length > 0" class="meh">
+                已忽略 {{ ignoredCookies.length }} 项无关 cookie：{{ ignoredCookies.join("、") }}
+            </li>
+        </ul>
+
         <div class="grid">
+            <div>
+                <label>ipb_member_id</label>
+                <input v-model="manualMemberId" spellcheck="false" />
+            </div>
+            <div>
+                <label>ipb_pass_hash</label>
+                <input v-model="manualPassHash" spellcheck="false" />
+            </div>
+            <div>
+                <label>igneous（可留空）</label>
+                <input v-model="manualIgneous" spellcheck="false" />
+            </div>
             <div>
                 <label>备注</label>
                 <input v-model="manualLabel" />
             </div>
-            <div>
-                <label>ipb_member_id</label>
-                <input v-model="manualMemberId" />
-            </div>
-            <div>
-                <label>ipb_pass_hash</label>
-                <input v-model="manualPassHash" />
-            </div>
-            <div>
-                <label>igneous</label>
-                <input v-model="manualIgneous" />
-            </div>
         </div>
         <div class="actions">
-            <button
-                :disabled="
-                    busy || manualMemberId === '' || manualPassHash === '' || manualIgneous === ''
-                "
-                @click="importCookies"
-            >
-                导入
-            </button>
+            <button :disabled="busy || !credentialReady" @click="importCookies">导入</button>
+            <span class="muted">
+                导入为{{ site === "exhentai" ? "里站" : "外站" }}账号（与上面的「站点」共用一个选择）
+            </span>
         </div>
+
+        <details class="guide">
+            <summary>从哪里拿这几个值？</summary>
+            <ol>
+                <li>
+                    先在自己平时用的浏览器里打开 e-hentai.org 并登录 —— 那边能过人机校验，
+                    本程序的服务端不一定能。
+                </li>
+                <li>
+                    按 <kbd>F12</kbd> 打开开发者工具，切到 <b>Application</b>（应用程序）→
+                    <b>Storage</b> → <b>Cookies</b>。
+                </li>
+                <li>
+                    选 <code>https://forums.e-hentai.org</code>（或 <code>https://e-hentai.org</code>），
+                    复制 <code>ipb_member_id</code> 与 <code>ipb_pass_hash</code> 两行的值。
+                </li>
+                <li><code>igneous</code> 只在 <code>https://exhentai.org</code> 下面有；找不到就留空。</li>
+                <li>
+                    嫌麻烦就用 cookie 导出插件（Cookie-Editor 之类）选「导出为 Cookie 字符串」，
+                    整串粘到上面。
+                </li>
+            </ol>
+            <p class="muted">
+                整串直接粘，程序自己挑出这几项；其余会列出来，但不会保存、也不会发给上游。
+            </p>
+        </details>
+
+        <Dialog v-model="askBrowserLogin" title="通过浏览器登入账号">
+            <p>
+                接下来将会打开一个浏览器窗口，请您在这个窗口内登入您的账号，EhBrowser
+                会自动查询登入状态并提取账户凭证，完成后浏览器窗口会自动关闭，请勿手动提前关闭
+            </p>
+            <template #buttons>
+                <button
+                    :disabled="busy"
+                    @click="
+                        askBrowserLogin = false;
+                        startBrowserLogin();
+                    "
+                >
+                    确定
+                </button>
+                <button @click="askBrowserLogin = false">取消</button>
+            </template>
+        </Dialog>
     </section>
 </template>
 
@@ -285,5 +496,86 @@ td {
     align-items: center;
     gap: 12px;
     margin-top: 14px;
+}
+
+.paste {
+    margin-bottom: 12px;
+}
+
+/* 浏览器登录：按钮与状态行同一排，状态文字跟着阶段变色 */
+.browser-login {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.browser-login .note {
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+
+.browser-login .note.ok {
+    color: var(--ok);
+}
+
+.browser-login .note.bad {
+    color: var(--danger);
+}
+
+/* 识别结果：逐行说清「认到了什么、缺什么、忽略了什么」 */
+.recog {
+    display: grid;
+    gap: 2px;
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+    font-size: var(--font-size-sm);
+}
+
+.recog .good {
+    color: var(--ok);
+}
+
+.recog .bad {
+    color: var(--danger);
+}
+
+.recog .meh {
+    color: var(--muted);
+}
+
+.guide {
+    margin-top: 16px;
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+
+.guide summary {
+    cursor: pointer;
+    color: var(--accent);
+}
+
+.guide ol {
+    display: grid;
+    gap: 4px;
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.guide li {
+    line-height: 1.5;
+}
+
+.guide b {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.guide kbd {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0 4px;
 }
 </style>

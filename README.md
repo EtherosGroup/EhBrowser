@@ -128,7 +128,7 @@ EhBrowser-1.3.0-installer.exe --no-shortcuts        :: 不建快捷方式（--sh
 3. 首次打开会弹一条提醒，内容为本软件免费、被收钱即为被骗。提醒里附仓库与 QQ 群（597399171）两个问询处。点「知道了」后不再出现。
 4. 首次使用要完成两项设置：
     - 代理：填入可用的 HTTP 代理地址（SOCKS5 不支持）。未配代理时所有上游请求都会超时。
-    - 账号：在「账号」页用 E-Hentai 账号密码登录，或导入已有的 Cookie。登录后服务端取回 `igneous` 并探测里站可达性。
+    - 账号：三条路任选 —— ①「用浏览器登录」：服务端拉起一个**真实浏览器窗口**，你在里面登录；②在「账号」页用 E-Hentai 账号密码登录；③把自己浏览器里登录后的 Cookie 整段粘进来（只有 `ipb_member_id` 与 `ipb_pass_hash` 必填，`igneous` 留空由服务端自己取）。三条路都会取回 `igneous` 并探测里站可达性。
 5. 之后正常浏览。配置改动即时生效，无需重启。
 
 常用命令：
@@ -215,7 +215,17 @@ XDG_CONFIG_HOME 等                                                系统默认
 - 所有上游请求由服务端转发，浏览器不直连 E-Hentai。
 - `igneous` 是里站通行证，有效期约一个月。登录时上游不下发，说明该出口节点不适用，换节点后重新登录。界面显示 igneous 已用天数，临近过期时提示。
 - 登录在论坛域（forums.e-hentai.org）以表单完成。成功后服务端保存 `ipb_member_id` 与 `ipb_pass_hash`，再访问画廊站取回 `igneous`。取不到 igneous 时登录仍算成功，只是里站不可用。
+- **出口节点过不了人机校验时，密码对不对都没用**：论坛登录端点会一直回 Cloudflare 的「Just a moment...」挑战页（HTTP 403、响应头 `cf-mitigated: challenge`），正文里没有凭据 Cookie。`isUpstreamChallenge` 认出这种响应后抛 `UpstreamChallengeError`，服务端按 `upstream_unavailable`（不是 400）回给界面，并直接说清是**人机校验**而不是账号密码错——早先这种情况混在「未获得凭据 Cookie」里，看起来像自己把用户名填错了。日志里也留一条 warn。出路有三条：换一个节点、走下面的导入 Cookie、或走**浏览器登录**。
+- **浏览器登录**（`src/services/browser-login.ts`）：界面上点一下，服务端用 Playwright 拉起**系统里已装的浏览器**（Windows 自带 Edge，Linux 桌面上一般有 Chrome/Chromium），你在窗口里自己登录，成功后服务端从浏览器内核里读走凭据 cookie，然后**走和导入 Cookie 完全相同的那条路**（落库 → 补 `igneous` → 探测里站）。它比导入省事，原理上的差别只是 cookie 由服务端自己去取而非手粘。
+    - 依赖 `playwright-core`（**不含浏览器二进制**，所以 `npm install` 不会拉几百 MB），浏览器用系统已有的；系统里都没有时可 `npx playwright install chromium`。
+    - 窗口**必须走与应用相同的代理**：取自 `network.proxy` 与 `auth_setting` 的 `proxyAuth`，与传输层同一份配置。直连不通的网络里不传代理，窗口里连登录页都打不开。
+    - 会话状态放在 `AuthStatus.browserLogin`，随既有 `auth.changed` 事件推给界面；`start` 立刻返回，不把「等用户登录」这件事塞进一次 HTTP 响应。同时只允许一个会话。
+    - 浏览器 profile 持久化在 `cacheDir/login-browser`：第二次登录常常不必再过挑战。代价是那份 profile 里存着一份登录态（与 `auth_setting.json` 同级别，别外传）。
+    - 没有桌面会话（SSH / 服务器里跑）时在发起阶段就说清不可用，而不是等超时。
+    - 关键参数是实测出来的：`headless: false` + `--disable-blink-features=AutomationControlled`，干净的独立 profile 也能过挑战。
 - 退出登录只清除凭据，账号条目保留在列表里，便于再次登录。
+- **导入 Cookie**（不经账号密码、也不经论坛表单）：界面上整段粘贴，由服务端挑出 `ipb_member_id` / `ipb_pass_hash` / `igneous`。其余 cookie 只在界面上列出来，**不保存、也不发给上游**（分隔符分号、换行都认，`Cookie:` 前缀与 `path=` / `expires=` 这类属性会被丢掉）。只有前两项必填：`igneous` 留空时服务端按登录那条路自己取。这条路是为「服务端出口节点过不了人机校验、但自己的浏览器能过」准备的——先在浏览器里登录，再把 Cookie 粘进来。
+- 导入**先落库、后补 `igneous`**：两份凭据立刻写进 `auth_setting.json`（写入经 SSE 马上推到界面），随后取 `igneous` 那一跳最长可能等满一个上游超时（默认 30 秒）。凭据不会因为这一跳失败或超时而丢，`igneousUpdatedAt` 也只在真取到时才写（否则界面会把「没有 igneous」显示成「已 0 天」）。
 - `fetchIgneous` 与 `probeExAccess` 都不属于主流程：`fetchIgneous` 先请求外站、再请求里站（不同出口节点下发的域不同），里站那一跳是兜底；`probeExAccess` 只回答「里站是否可达」。两者都捕获传输错误并且不向上抛出：
     - 里站连不上（代理不放行、节点不稳定）时只记一条 warn，登录照常成功，账号照常保存，里站显示为不可达。早先这里把异常直接抛给界面（`upstream_unavailable：…ECONNRESET`），登录中断，账号也无法保存。
     - 取到 igneous 才写进账号；取不到就提示「换节点后重新登录」，不影响外站。
@@ -341,7 +351,7 @@ src/
 ├── eh/            上游客户端：传输层、gdata / gtoken / showpage、页面 HTML 解析、地址构造
 ├── config/        持久化：JSON 存储管线、schema、迁移、校验、SQLite
 ├── platform/      平台差异：系统识别、数据目录解析、错误描述、外部程序打开
-└── services/      业务编排：配置服务、上游装配、画廊服务、账号服务、下载服务、检索结果缓存、本地库与 zip 读取、播放列表、更新检查、收藏、标签翻译词库、日志、客户端状态诊断
+└── services/      业务编排：配置服务、上游装配、画廊服务、账号服务、浏览器登录、下载服务、检索结果缓存、本地库与 zip 读取、播放列表、更新检查、收藏、标签翻译词库、日志、客户端状态诊断
 
 web/                 前端源码（Vue 单文件组件 + Vite），构建产物输出到 dist/web
 ├── router.ts      路由表，标签页即路由
@@ -367,6 +377,7 @@ web/                 前端源码（Vue 单文件组件 + Vite），构建产物
 ├── search-history.ts 搜索历史（localStorage，最多 20 条）
 ├── diagnostics.ts 客户端状态提示：服务端状态 + 本地往返耗时 -> 右上角那组图标
 ├── auto-search.ts 自动搜索的开关状态与进入页面时的提示
+├── cookie-text.ts 粘贴的 Cookie 文本 -> 三个凭据字段（纯函数，界面就地校验用）
 ├── messenger.ts   弹出消息封装
 ├── progress.ts    顶部加载条封装
 ├── sprite-cache.ts 精灵图预载与结果广播

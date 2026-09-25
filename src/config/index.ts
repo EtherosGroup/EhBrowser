@@ -71,7 +71,6 @@ export * from "./schema.ts";
 export {
     activeAccount,
     igneousAgeDays,
-    isCompleteCookies,
     isIgneousStale,
     newAccountId,
     redactAuth,

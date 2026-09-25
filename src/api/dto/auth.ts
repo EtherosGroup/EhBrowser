@@ -17,6 +17,34 @@ export interface AccountSummary {
     readonly hasApiKey: boolean;
 }
 
+/**
+ * 浏览器登录会话的阶段。
+ * 窗口开在用户自己的桌面上，服务端只负责开窗、等 cookie、关窗，所以进度只能靠状态回报
+ */
+export type BrowserLoginPhase =
+    | "idle"
+    | "launching"
+    | "waiting"
+    | "succeeded"
+    | "failed"
+    | "timeout"
+    | "cancelled";
+
+export interface BrowserLoginState {
+    readonly phase: BrowserLoginPhase;
+    /** 直接显示给用户的一句话；idle 时为空 */
+    readonly message: string;
+    /** 会话开始时间；idle 为 null */
+    readonly startedAt: EpochSeconds | null;
+}
+
+/** 开一个真实浏览器窗口让用户登录 */
+export interface BrowserLoginInput {
+    readonly site: EhSite;
+    /** 缺省使用「浏览器登录」 */
+    readonly label?: string;
+}
+
 /** 鉴权总览；igneous 有效期约一个月，故返回其年龄供界面提示重新登录 */
 export interface AuthStatus {
     readonly loggedIn: boolean;
@@ -28,6 +56,8 @@ export interface AuthStatus {
     readonly igneousStale: boolean;
     /** 里站是否可达；未探测为 null */
     readonly exAccessible: boolean | null;
+    /** 浏览器登录会话的状态。进度经 auth.changed 事件推送，界面据此显示等待与取消 */
+    readonly browserLogin: BrowserLoginState;
 }
 
 /**

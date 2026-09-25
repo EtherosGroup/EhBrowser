@@ -42,6 +42,7 @@
         "release:portable": "npm run build && node scripts/portable.mjs"
     },
     "dependencies": {
+        "playwright-core": "^1.63.0",
         "undici": "^8.10.2"
     },
     "devDependencies": {

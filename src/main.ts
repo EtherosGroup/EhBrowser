@@ -5,12 +5,14 @@
  */
 
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import { initConfig } from "./config/index.ts";
 import { hasProxyAgent, observeRequestDuration } from "./eh/index.ts";
 import { openExternal } from "./platform/open-external.ts";
 import { generateToken, startServer, type RunningServer } from "./server.ts";
 import { createAuthService } from "./services/auth-service.ts";
+import { createBrowserLoginRunner } from "./services/browser-login.ts";
 import { createConfigService } from "./services/config-service.ts";
 import { createDiagnosticsService } from "./services/diagnostics-service.ts";
 import { createDownloadService, defaultDownloadDirectory } from "./services/download-service.ts";
@@ -141,8 +143,28 @@ async function main(): Promise<void> {
         }
     });
     downloads.recover();
+
+    // 使用浏览器登入
+    const browserLogin = createBrowserLoginRunner({
+        profileDir: join(ctx.paths.cacheDir, "login-browser"),
+        proxy: () => {
+            const { proxy } = service.snapshot().setting.network;
+            if (!proxy.enabled || proxy.host === "") {
+                return null;
+            }
+            const credentials = ctx.auth.get().proxyAuth;
+            return {
+                // Chromium 的 socks5 是通的，这里原样交给它（传输层那边不支持 socks5）
+                server: `${proxy.protocol}://${proxy.host}:${proxy.port}`,
+                ...(credentials.username === "" ? {} : { username: credentials.username }),
+                ...(credentials.password === "" ? {} : { password: credentials.password }),
+            };
+        },
+        logger: logs.logger("browser-login"),
+    });
     const auth = createAuthService(ctx, {
         logger: logs.logger("auth"),
+        browserLogin,
     });
 
     // 用户播放列表：持久化在 SQLite，重启不丢
@@ -211,6 +233,8 @@ async function main(): Promise<void> {
         logs.append("info", `正在关闭服务端，终止信号为 ${signal}`);
         try {
             diagnostics.stop();
+            // 先收掉可能开着的登录窗口，防止出现孤浏览器
+            await browserLogin.shutdown();
             await server.close();
             await ctx.close();
             // 最后等待日志落盘，否则进程退出快于写文件，日志尾部会丢失
