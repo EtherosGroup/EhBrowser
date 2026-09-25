@@ -636,7 +636,7 @@ EhBrowser-1.0.0/
 
 ### Windows 安装器（`installer/windows`）
 
-`installer/windows/` 是一个独立的 CMake 工程（`main.cpp` 是安装器、`launcher.cpp` 是隐藏启动器，加一个 `CMakeLists.txt`、一个 `CMakePresets.json`），不依赖仓库里的 Node 工具链：
+`installer/windows/` 是一个独立的 CMake 工程（`main.cpp` 是安装器、`launcher.cpp` 是隐藏启动器、`ehbrowser.ico` 是两个 exe 共用的应用图标，加 `CMakeLists.txt`、`CMakePresets.json` 和 `installer.rc.in` / `launcher.rc.in` 两个资源模板），不依赖仓库里的 Node 工具链：
 
 - `x64-Release` 预设用 `Visual Studio 18 2026` 生成器：`/O2` + LTCG + 静态 CRT（`/MT`）+ CFG，两个 exe 都不需要目标机器装 VC++ 运行库。本地构建（需要 VS 2026 与 CMake ≥ 4.2）：
 
@@ -650,7 +650,8 @@ EhBrowser-1.0.0/
 
 - 安装器做四件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g ehbrowser@latest`、按需创建快捷方式。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
 - 装的始终是 `ehbrowser@latest`：安装器自己不绑定版本，因此旧版安装器也会装到最新版。
-- **启动器**（`launcher.cpp`）是个子系统为 WINDOWS 的小程序，自己没有控制台：它用 `CreateProcessW` + `CREATE_NO_WINDOW` 起 `cmd.exe` 跑 `ehbrowser`，所以双击快捷方式不会闪命令行窗口。快捷方式指向它、参数是 `ehbrowser`，图标取 node.exe。要隐藏窗口只能这么做：`.lnk` 的「运行方式」只有常规/最大化/最小化，没有隐藏。
+- **启动器**（`launcher.cpp`）是个子系统为 WINDOWS 的小程序，自己没有控制台：它用 `CreateProcessW` + `CREATE_NO_WINDOW` 起 `cmd.exe` 跑 `ehbrowser`，所以双击快捷方式不会闪命令行窗口。快捷方式指向它、参数是 `ehbrowser`，图标位置也填它自己（`.lnk` 的 `IconLocation` 就是 `ehbrowser-launcher.exe`）。要隐藏窗口只能这么做：`.lnk` 的「运行方式」只有常规/最大化/最小化，没有隐藏。
+- **图标**（`ehbrowser.ico`）：桌面快捷方式、开始菜单快捷方式、通知区域、任务管理器四处是同一个图标。`ehbrowser.ico` 里的 16/24/32/48/64 是传统 32bpp DIB、128/256 是 PNG 压缩，**背景透明**（不带那层深色底，落在什么底色上就贴什么底色）；每一档都由同目录的 `ehbrowser-icon.svg`（源设计在 `icons/loopback-privacy`）按矢量直接渲染，不做降采样——预乘 alpha 的空间里重采样会振铃，还原 alpha 时那些过冲被放大成白色噪点（实测 LANCZOS 在 256px 会留下约 800 个可见白点，逐尺寸直出是 0）。16×16 下那枚薄荷绿的点仍在。编进哪儿由两个资源模板分工：`launcher.rc.in` 把图标挂到启动器上，托盘由 `LoadAppIcon` 按 `SM_CXSMICON` 从自己的资源里取（DPI 缩放交给系统，`LoadImage` 拿到的句柄退出时 `DestroyIcon`）；`installer.rc.in` 再给安装器自己也挂一份，桌面上那个 `installer.exe` 因此不再是一张白纸。以前是「图标取 `node.exe`」，现在整条链上不再依赖 Node 的图标资源。
 - 藏起来之后客户端就没人管得了，所以启动器常驻通知区域：右键菜单「打开浏览器 / 查看日志 / 重启客户端 / 关闭客户端」，左键单击直接打开界面。它按窗口类名做单实例——托盘在跑时再双击快捷方式只是请托盘打开浏览器，不会起第二个客户端。
 - 子进程放进一个 job 对象（`KILL_ON_JOB_CLOSE`；先挂起创建、挂上后再放行，免得 cmd 抢先把 node 生出来），所以「重启 / 关闭」连 cmd 带 node 一起收掉，托盘自己被结束掉时也不会留下孤儿 node。代价是客户端不走自己的退出收尾：配置是原子写、SQLite 有日志（实测不丢），只是它最后那几行日志可能少一笔。
 - 「打开浏览器」「查看日志」不用另配端口与目录：客户端启动横幅里有「地址：」和「日志：」两行，启动器从 `launcher.log` 里解析出来，自定义端口、自定义日志目录都能跟上。「查看日志」打开该目录下最新的 `ehbrowser-<日期>.log`，还没有就退回 `launcher.log`。

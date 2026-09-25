@@ -13,5 +13,10 @@
  * CMake 给的 ${CMAKE_BINARY_DIR} 本来就是正斜杠，下面那步替换只是兜底。
  *
  * 第一行的 code_page 是让 rc 按 UTF-8 读本文件（否则它按系统 ANSI 代码页读，中文注释会变乱码）。
+ *
+ * 末尾那行给安装器自己也挂上应用图标（双击桌面上那个 installer.exe 时看到的就是它），
+ * 用的是与启动器内嵌的同一个 ehbrowser.ico（见 launcher.rc.in）。
  */
+#define IDI_EHBROWSER 101
 EHBROWSER_LAUNCHER RCDATA "@EHBROWSER_LAUNCHER_EXE_RC@"
+IDI_EHBROWSER ICON "@EHBROWSER_ICON_RC@"

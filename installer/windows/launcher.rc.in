@@ -1,0 +1,25 @@
+#pragma code_page(65001)
+/*
+ * 由 CMake 的 configure_file 生成（模板是 launcher.rc.in）。
+ *
+ * 只做一件事：把应用图标编进启动器。托盘那条路是 launcher.cpp 的 LoadAppIcon 从自己的资源里
+ * 取（ID 由 launcher.cpp 的 kIconId 定，两处必须一致）；快捷方式那条路是安装器把 .lnk 的
+ * 图标位置直接指向本 exe（见 main.cpp 的 InstallShortcuts）——所以三处（桌面、开始菜单、
+ * 通知区域）共用图标，也不会在机器上另留一个 .ico 文件。
+ *
+ * 图标是 ehbrowser.ico：16/24/32/48/64 是传统 32bpp DIB，128/256 是 PNG 压缩，
+ * 背景透明。每一档都由同目录的 ehbrowser-icon.svg 按矢量直接渲染，不做降采样——
+ * 在预乘 alpha 的空间里重采样会振铃，还原 alpha 时那些过冲会被放大成一片白色噪点。
+ *
+ * rc 把字符串里的反斜杠当转义（\x64 会被吃成 "d"），路径里的反斜杠要写成两个；
+ * CMake 给的 ${CMAKE_CURRENT_SOURCE_DIR} 本来就是正斜杠，下面那步替换只是兜底。
+ *
+ * 第一行的 code_page 是让 rc 按 UTF-8 读本文件（否则它按系统 ANSI 代码页读，中文注释会变乱码）。
+ *
+ * 这个 #define 不能省：rc 遇到没定义过的标识符会把它当成**字符串名**存进资源目录，
+ * 于是资源名变成 "IDI_EHBROWSER" 而不是数字 101，launcher.cpp 里按
+ * MAKEINTRESOURCEW(kIconId)（即 101）去找就找不到，托盘会静默退回系统默认图标。
+ * （同名资源的 ID 在 installer.rc.in 里也是 101，两处必须一致。）
+ */
+#define IDI_EHBROWSER 101
+IDI_EHBROWSER ICON "@EHBROWSER_ICON_RC@"

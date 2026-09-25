@@ -72,6 +72,9 @@ constexpr UINT WM_TRAY = WM_APP + 1;
 /** 第二个实例发来的「把界面调出来」 */
 constexpr UINT WM_OPEN_BROWSER = WM_APP + 2;
 
+/** 应用图标在本程序资源里的 ID（见 launcher.rc.in / ehbrowser.ico） */
+constexpr int kIconId = 101;
+
 enum MenuId : UINT {
     kMenuOpen = 1001,
     kMenuLogs,
@@ -435,6 +438,8 @@ std::wstring NewestClientLog(const std::wstring& dir) {
 struct State {
     HWND hwnd = nullptr;
     HICON icon = nullptr;
+    /** g.icon 是自己 LoadImage 出来的（用完要 DestroyIcon）；退回系统共享图标时是 false */
+    bool iconOwned = false;
     bool trayAdded = false;
     HANDLE job = nullptr;
     HANDLE process = nullptr;
@@ -608,18 +613,20 @@ void OpenLogs() {
     }
 }
 
-/** 托盘图标：沿用 node.exe 的图标，与快捷方式保持一致；取不到就用系统默认 */
-HICON LoadClientIcon() {
-    wchar_t nodePath[MAX_PATH] = {};
-    if (SearchPathW(nullptr, L"node.exe", nullptr, MAX_PATH, nodePath, nullptr) > 0) {
-        HICON big = nullptr;
-        HICON small = nullptr;
-        if (ExtractIconExW(nodePath, 0, &big, &small, 1) > 0) {
-            if (big != nullptr) DestroyIcon(big);
-            if (small != nullptr) return small;
-        }
+/**
+ * 应用图标取自本程序自己内嵌的资源（ehbrowser.ico，经 launcher.rc.in 编进来），
+ * 与快捷方式指向的是同一个图标——快捷方式的图标位置就是本 exe。取不到时返回空。
+ */
+HICON LoadAppIcon(int cx, int cy) {
+    const HINSTANCE self = GetModuleHandleW(nullptr);
+    HICON icon = static_cast<HICON>(
+        LoadImageW(self, MAKEINTRESOURCEW(kIconId), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR));
+    if (icon == nullptr) {
+        // 指定尺寸取不到（比如 SM_CXSMICON 异常）就按资源里的实际尺寸来
+        icon = static_cast<HICON>(
+            LoadImageW(self, MAKEINTRESOURCEW(kIconId), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_DEFAULTCOLOR));
     }
-    return LoadIconW(nullptr, IDI_APPLICATION);
+    return icon;
 }
 
 void UpdateTooltip() {
@@ -636,7 +643,12 @@ void UpdateTooltip() {
 
 void AddTray() {
     if (g.trayAdded) return;
-    if (g.icon == nullptr) g.icon = LoadClientIcon();
+    if (g.icon == nullptr) {
+        g.icon = LoadAppIcon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
+        g.iconOwned = g.icon != nullptr;
+        // 资源缺失（exe 被换成了没编资源的版本）时退回系统默认图标，它由系统共享、不能销毁
+        if (g.icon == nullptr) g.icon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
@@ -669,6 +681,9 @@ void RemoveTray() {
 void RequestQuit(UINT code) {
     RemoveTray();
     KillClient();
+    if (g.iconOwned) DestroyIcon(g.icon); // LoadImage 拿到的图标归自己管
+    g.icon = nullptr;
+    g.iconOwned = false;
     PostQuitMessage(static_cast<int>(code));
 }
 

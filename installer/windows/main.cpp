@@ -1155,7 +1155,7 @@ bool ExtractEmbeddedLauncher(const std::wstring& dest, std::string& error) {
     return true;
 }
 
-/** 写一个 .lnk：目标、参数、工作目录、图标、备注 */
+/** 写一个 .lnk：目标、参数、工作目录、图标、备注（图标取的是可执行文件里的图标资源） */
 bool CreateShortcutFile(const std::wstring& lnkPath, const std::wstring& target, const std::wstring& arguments,
                         const std::wstring& workDir, const std::wstring& icon, const std::wstring& description,
                         std::string& error) {
@@ -1194,8 +1194,11 @@ bool CreateShortcutFile(const std::wstring& lnkPath, const std::wstring& target,
 /*
  * [4/4] 释放隐藏启动器，再建桌面与开始菜单快捷方式。
  * 快捷方式没建成不算安装失败（应用已经装好了，退出码仍是 0），但会逐条报出来。
+ *
+ * 图标位置就填启动器自己：ehbrowser.ico 是编进它的资源里的（见 launcher.rc.in），
+ * 快捷方式、托盘、任务管理器三处因此共用同一个图标，也不会在别处留下一个 .ico 文件。
  */
-void InstallShortcuts(const std::wstring& installDir, const std::wstring& nodeExe, const Options& o) {
+void InstallShortcuts(const std::wstring& installDir, const Options& o) {
     if (installDir.empty()) {
         Warn("没拿到全局安装目录，跳过创建快捷方式。");
         return;
@@ -1250,7 +1253,7 @@ void InstallShortcuts(const std::wstring& installDir, const std::wstring& nodeEx
         }
         const std::wstring lnk = JoinPath(*dir, kShortcutName);
         std::string err;
-        if (CreateShortcutFile(lnk, launcher, kShortcutArguments, installDir, nodeExe,
+        if (CreateShortcutFile(lnk, launcher, kShortcutArguments, installDir, launcher,
                                L"EhBrowser - E-Hentai 浏览器", err)) {
             SayLine(std::string("  已创建") + t.label + "快捷方式：" + ToUtf8(lnk));
         } else {
@@ -1454,7 +1457,7 @@ int RunInstaller(const Options& o) {
     SayLine();
     Say("[4/4] 创建快捷方式 ...");
     SayLine();
-    InstallShortcuts(installDir, node.exe, o);
+    InstallShortcuts(installDir, o);
     return kExitOk;
 }
 

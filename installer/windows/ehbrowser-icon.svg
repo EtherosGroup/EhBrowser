@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Local loopback privacy icon">
+  <title>Local loopback / privacy</title>
+  <!-- Deterministic vector master for ehbrowser.ico. Geometry mirrors
+       build-icon.py: 512 unit canvas, 46 unit uniform stroke, rounded-rectangle
+       loop (box 88..424, r 80) with one clockwise arrowhead on the top edge and
+       a centred 3x3 dot grid inside it.
+
+       The background is TRANSPARENT (no backing rect): the mark is meant to sit
+       on whatever surface it lands on. Render each icon size straight from this
+       file - do not downscale one big raster, because resampling premultiplied
+       alpha rings and the ring turns into white speckle when alpha is restored. -->
+
+  <!-- loop: clockwise from just left of the gap, all the way round, ending at the arrowhead base -->
+  <path d="M330 88 H344 A80 80 0 0 1 424 168 V344 A80 80 0 0 1 344 424 H168 A80 80 0 0 1 88 344 V168 A80 80 0 0 1 168 88 H190"
+        fill="none" stroke="#6ea8fe" stroke-width="46" stroke-linecap="butt" stroke-linejoin="round"/>
+
+  <!-- single arrowhead, pointing clockwise (rightwards) along the top edge -->
+  <path d="M286 88 L190 40 L190 136 Z" fill="#6ea8fe"/>
+
+  <!-- 3x3 dot grid, upright and centred; only the top-right dot is mint -->
+  <g fill="#8b929e">
+    <circle cx="172" cy="172" r="26"/>
+    <circle cx="256" cy="172" r="26"/>
+    <circle cx="172" cy="256" r="26"/>
+    <circle cx="256" cy="256" r="26"/>
+    <circle cx="340" cy="256" r="26"/>
+    <circle cx="172" cy="340" r="26"/>
+    <circle cx="256" cy="340" r="26"/>
+    <circle cx="340" cy="340" r="26"/>
+  </g>
+  <circle cx="340" cy="172" r="30" fill="#6fbf8f"/>
+</svg>

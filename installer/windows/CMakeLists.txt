@@ -72,8 +72,12 @@ if(WIN32)
     # rc 把字符串里的反斜杠当转义（\x64 会被吃成 "d"，\t 会变成制表符），所以路径里的反斜杠
     # 必须写成两个。CMake 的 ${CMAKE_BINARY_DIR} 出来就是正斜杠，这步只是兜底
     string(REPLACE "\\" "\\\\" EHBROWSER_LAUNCHER_EXE_RC "${EHBROWSER_LAUNCHER_EXE}")
+    string(REPLACE "\\" "\\\\" EHBROWSER_ICON_RC "${CMAKE_CURRENT_SOURCE_DIR}/ehbrowser.ico")
+    # 安装器的 rc：内嵌启动器 + 自己的应用图标；启动器的 rc：只内嵌应用图标
     configure_file(installer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/installer.rc" @ONLY)
+    configure_file(launcher.rc.in "${CMAKE_CURRENT_BINARY_DIR}/launcher.rc" @ONLY)
     target_sources(ehbrowser-installer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/installer.rc")
+    target_sources(ehbrowser-launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/launcher.rc")
 endif()
 
 # 编译资源脚本前必须先把启动器生成出来
