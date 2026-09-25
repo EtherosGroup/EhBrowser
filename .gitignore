@@ -5,3 +5,15 @@
 /release/
 /working/
 *.tgz
+
+# CMake / VS 文件夹模式：构建产物在 out/build/<配置> 下。
+# CMake 工程在 installer/windows，VS 直接打开那个文件夹，所以 .vs 可能出现在任意一层
+/out/
+/build/
+/installer/windows/out/
+.vs/
+# 本地覆盖用的预设，按 CMake 约定不入库（在 installer/windows 下）
+CMakeUserPresets.json
+# VS 的旧式配置（它自己会在开着的文件夹根目录生成）。有 CMakePresets.json 时 VS 走预设、
+# 忽略这个文件，别让它进仓库，否则两套配置容易互相打架
+CMakeSettings.json
