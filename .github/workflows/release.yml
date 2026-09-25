@@ -180,7 +180,11 @@ jobs:
         permissions:
             contents: write # 创建 Release、上传附件
         steps:
-            # 这个 job 不需要 checkout：产物全从 artifact 取，gh 认 GITHUB_TOKEN 与仓库环境变量
+            # gh 需要有仓库上下文才干活：没有 checkout 时它报「failed to run git: not a git
+            # repository」，实测设 GITHUB_REPOSITORY 也不顶用（release job 因此失败过一次）。
+            # 产物仍然全从 artifact 取，这里签到只是为了给 gh 一个仓库
+            - uses: actions/checkout@v7
+
             - name: 取便携包
               uses: actions/download-artifact@v7
               with:
@@ -205,12 +209,14 @@ jobs:
                     test -f "$f" || { echo "缺少附件：$f"; exit 1; }
                   done
                   ls -l "${files[@]}"
-                  if gh release view "$TAG" >/dev/null 2>&1; then
-                    gh release upload "$TAG" "${files[@]}" --clobber
+                  # 再显式给一次仓库，不依赖上面那份 checkout
+                  repo="$GITHUB_REPOSITORY"
+                  if gh release view "$TAG" -R "$repo" >/dev/null 2>&1; then
+                    gh release upload "$TAG" "${files[@]}" -R "$repo" --clobber
                   else
-                    gh release create "$TAG" \
+                    gh release create "$TAG" -R "$repo" \
                       --title "$TAG" \
                       --generate-notes \
                       "${files[@]}"
                   fi
-                  gh release view "$TAG" --json url --jq .url
+                  gh release view "$TAG" -R "$repo" --json url --jq .url
