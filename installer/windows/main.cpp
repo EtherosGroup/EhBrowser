@@ -2,7 +2,11 @@
 #define NOMINMAX
 
 #include <windows.h>
+// WIN32_LEAN_AND_MEAN 之后 windows.h 不再带 COM 的头，而快捷方式要用 IShellLink
+#include <objbase.h>
 #include <shellapi.h>
+#include <shlguid.h>
+#include <shlobj.h>
 #include <winhttp.h>
 #include <winreg.h>
 
@@ -26,9 +30,17 @@ constexpr int kMinNodeMinor = 18;
 constexpr DWORD kWin10Build = 10240;
 constexpr DWORD kWin11Build = 22000;
 
-constexpr const char* kInstallerVersion = "1.0.0";
+constexpr const char* kInstallerVersion = "1.1.0";
 constexpr const wchar_t* kNpmPackage = L"ehbrowser@latest";
 constexpr const wchar_t* kNodeDownloadPage = L"https://nodejs.org/";
+
+/** 隐藏启动器在安装器里的资源名（见 installer.rc.in），装完后释放到 npm 全局目录 */
+constexpr const wchar_t* kLauncherResource = L"EHBROWSER_LAUNCHER";
+constexpr const wchar_t* kLauncherFileName = L"ehbrowser-launcher.exe";
+/** 快捷方式的名字（桌面与开始菜单各一个） */
+constexpr const wchar_t* kShortcutName = L"EhBrowser.lnk";
+/** 快捷方式的参数：交给 cmd 按 PATH 解析，换 Node 版本、npm 全局目录变了也不容易断 */
+constexpr const wchar_t* kShortcutArguments = L"ehbrowser";
 
 constexpr int kExitOk = 0;
 constexpr int kExitBadArgs = 1;
@@ -43,6 +55,9 @@ struct Options {
     bool checkOnly = false;
     bool help = false;
     bool elevatedRetry = false;
+    // 快捷方式：createShortcutsSet 为假时表示「没在命令行里说」，装完要问一次
+    bool createShortcuts = false;
+    bool createShortcutsSet = false;
     std::wstring nodeDir;
     bool nodeDirSet = false;
 };
@@ -56,6 +71,8 @@ void PrintHelp() {
         "选项：\n"
         "  -y, --yes             全部问题取默认值，不询问（无人值守用）\n"
         "      --node-dir <路径>  Node.js 需要安装时用这个目录，不问\n"
+        "      --shortcuts       创建桌面与开始菜单快捷方式，不问\n"
+        "      --no-shortcuts    不创建快捷方式，不问\n"
         "      --dry-run         只打印将要执行的命令，不下载也不安装\n"
         "      --check           只检查系统版本与 Node.js，不做任何修改\n"
         "  -h, --help            显示本帮助\n"
@@ -64,6 +81,13 @@ void PrintHelp() {
         "  1) 系统版本低于 Windows 10 -> 判定不支持并退出\n"
         "  2) 未检测到 Node.js >= 22 -> 询问是否安装、装到哪个目录\n"
         "  3) 执行 npm install -g ehbrowser@latest\n"
+        "  4) 询问是否创建桌面与开始菜单快捷方式（默认创建）\n"
+        "\n"
+        "快捷方式指向一个没有控制台窗口的启动器（ehbrowser-launcher.exe）：它把客户端\n"
+        "隐藏启动，并在通知区域放一个托盘图标——右键可打开浏览器、查看日志、重启或\n"
+        "关闭客户端；再双击一次快捷方式只是把界面调出来，不会起第二个客户端。\n"
+        "客户端的控制台输出收在 %LOCALAPPDATA%\\ehbrowser\\launcher.log，启动失败时\n"
+        "会用消息框把日志尾巴提示出来。\n"
         "\n"
         "退出码：0 成功，1 参数错误，2 系统版本不支持，3 用户取消，\n"
         "        4 Node.js 安装失败，5 ehbrowser 安装失败\n";
@@ -83,6 +107,12 @@ bool ParseArgs(int argc, wchar_t** argv, Options& o, std::wstring& err) {
             o.help = true;
         } else if (a == L"-y" || a == L"--yes") {
             o.assumeYes = true;
+        } else if (a == L"--shortcuts") {
+            o.createShortcuts = true;
+            o.createShortcutsSet = true;
+        } else if (a == L"--no-shortcuts") {
+            o.createShortcuts = false;
+            o.createShortcutsSet = true;
         } else if (a == L"--dry-run") {
             o.dryRun = true;
         } else if (a == L"--check") {
@@ -436,7 +466,7 @@ bool IsSupportedOs(const OsVersion& v) {
 }
 
 bool CheckWindowsVersion() {
-    Say("[1/3] 检查系统版本 ... ");
+    Say("[1/4] 检查系统版本 ... ");
     auto v = QueryOsVersion();
     if (!v) {
         SayLine("无法确定");
@@ -1009,12 +1039,14 @@ std::optional<std::string> ReadEhBrowserInstalledVersion(const std::wstring& pre
     return std::nullopt;
 }
 
-int InstallEhBrowser(const std::wstring& nodeExe, const Options& o) {
+// installDir 是 npm 全局目录（快捷方式要把启动器释放到这里）；拿不到全局前缀时退回 node.exe 旁边
+int InstallEhBrowser(const std::wstring& nodeExe, const Options& o, std::wstring& installDir) {
     SayLine();
-    Say("[3/3] 安装 ehbrowser ...");
+    Say("[3/4] 安装 ehbrowser ...");
     SayLine();
 
     NpmPaths npm = ResolveNpm(nodeExe);
+    installDir = ParentDir(nodeExe);
     const std::vector<std::wstring> installArgs = {L"install", L"-g", kNpmPackage, L"--no-fund",
                                                    L"--no-audit"};
 
@@ -1030,6 +1062,7 @@ int InstallEhBrowser(const std::wstring& nodeExe, const Options& o) {
 
     auto prefix = QueryNpmGlobalPrefix(npm);
     if (prefix) {
+        installDir = *prefix;
         if (auto old = ReadEhBrowserInstalledVersion(*prefix))
             SayLine("  检测到已安装 ehbrowser " + *old + "，将检查并升级到最新版。");
         SayPath("  全局安装目录：", *prefix);
@@ -1057,7 +1090,7 @@ int InstallEhBrowser(const std::wstring& nodeExe, const Options& o) {
     }
 
     if (!prefix) prefix = QueryNpmGlobalPrefix(npm);
-    std::wstring installDir = prefix ? *prefix : ParentDir(nodeExe);
+    if (prefix) installDir = *prefix;
     std::wstring shim = JoinPath(installDir, L"ehbrowser.cmd");
 
     SayLine();
@@ -1072,6 +1105,160 @@ int InstallEhBrowser(const std::wstring& nodeExe, const Options& o) {
     if (!FileExists(shim))
         Warn("没在预期位置看到 ehbrowser.cmd；若命令找不到，请重开终端刷新 PATH。");
     return kExitOk;
+}
+
+// ── 快捷方式 ──────────────────────────────────────────────────
+
+std::string HResultText(HRESULT hr) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), " (0x%08lX)", static_cast<unsigned long>(hr));
+    return buf;
+}
+
+/** 已知文件夹的路径：桌面用 FOLDERID_Desktop，这样能跟随 OneDrive 之类的桌面重定向 */
+std::optional<std::wstring> KnownFolderPath(const KNOWNFOLDERID& id) {
+    PWSTR raw = nullptr;
+    if (FAILED(SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, nullptr, &raw))) return std::nullopt;
+    std::wstring path = raw ? raw : L"";
+    if (raw) CoTaskMemFree(raw);
+    if (path.empty()) return std::nullopt;
+    return path;
+}
+
+/** 把安装器里内嵌的启动器写出来（覆盖旧的）。失败多半是它正在运行、文件被占 */
+bool ExtractEmbeddedLauncher(const std::wstring& dest, std::string& error) {
+    HRSRC res = FindResourceW(nullptr, kLauncherResource, RT_RCDATA);
+    if (!res) {
+        error = "安装器里没有内嵌启动器资源" + LastErrorText(0);
+        return false;
+    }
+    const DWORD size = SizeofResource(nullptr, res);
+    HGLOBAL loaded = LoadResource(nullptr, res);
+    const void* data = loaded ? LockResource(loaded) : nullptr;
+    if (!data || size == 0) {
+        error = "内嵌启动器资源是空的" + LastErrorText(0);
+        return false;
+    }
+
+    HANDLE file = CreateFileW(dest.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        error = "写入 " + ToUtf8(dest) + " 失败" + LastErrorText(0);
+        return false;
+    }
+    HandlePtr guard(file);
+
+    DWORD written = 0;
+    if (!WriteFile(file, data, size, &written, nullptr) || written != size) {
+        error = "写入 " + ToUtf8(dest) + " 不完整" + LastErrorText(0);
+        return false;
+    }
+    return true;
+}
+
+/** 写一个 .lnk：目标、参数、工作目录、图标、备注 */
+bool CreateShortcutFile(const std::wstring& lnkPath, const std::wstring& target, const std::wstring& arguments,
+                        const std::wstring& workDir, const std::wstring& icon, const std::wstring& description,
+                        std::string& error) {
+    IShellLinkW* link = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+                                  reinterpret_cast<void**>(&link));
+    if (FAILED(hr) || !link) {
+        error = "无法创建 IShellLink" + HResultText(hr);
+        return false;
+    }
+
+    link->SetPath(target.c_str());
+    link->SetArguments(arguments.c_str());
+    link->SetWorkingDirectory(workDir.c_str());
+    link->SetDescription(description.c_str());
+    if (!icon.empty()) link->SetIconLocation(icon.c_str(), 0);
+
+    IPersistFile* persist = nullptr;
+    hr = link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&persist));
+    if (FAILED(hr) || !persist) {
+        error = "无法取得 IPersistFile" + HResultText(hr);
+        link->Release();
+        return false;
+    }
+
+    hr = persist->Save(lnkPath.c_str(), TRUE);
+    persist->Release();
+    link->Release();
+    if (FAILED(hr)) {
+        error = "写入 " + ToUtf8(lnkPath) + " 失败" + HResultText(hr);
+        return false;
+    }
+    return true;
+}
+
+/*
+ * [4/4] 释放隐藏启动器，再建桌面与开始菜单快捷方式。
+ * 快捷方式没建成不算安装失败（应用已经装好了，退出码仍是 0），但会逐条报出来。
+ */
+void InstallShortcuts(const std::wstring& installDir, const std::wstring& nodeExe, const Options& o) {
+    if (installDir.empty()) {
+        Warn("没拿到全局安装目录，跳过创建快捷方式。");
+        return;
+    }
+
+    const bool want = o.createShortcutsSet ? o.createShortcuts
+                                           : AskYesNo("是否在桌面和开始菜单创建 EhBrowser 快捷方式？", true, o);
+    if (!want) {
+        SayLine("  已跳过。");
+        return;
+    }
+
+    const std::wstring launcher = JoinPath(installDir, kLauncherFileName);
+    if (o.dryRun) {
+        SayLine("  --dry-run：不释放启动器、不创建快捷方式。");
+        SayPath("  启动器会释放到：", launcher);
+        return;
+    }
+
+    std::string error;
+    if (ExtractEmbeddedLauncher(launcher, error)) {
+        SayPath("  启动器：", launcher);
+    } else if (FileExists(launcher)) {
+        // 正在运行的实例占着这个文件，覆盖会失败；沿用现有那份就行
+        Warn("没能覆盖启动器（托盘还在运行），沿用现有版本；要更新它先右键托盘退出：" + error);
+    } else {
+        Warn("释放启动器失败：" + error + "，跳过创建快捷方式。");
+        return;
+    }
+
+    const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hrInit) && hrInit != RPC_E_CHANGED_MODE) {
+        Warn("COM 初始化失败" + HResultText(hrInit) + "，跳过创建快捷方式。");
+        return;
+    }
+    const bool comOwned = SUCCEEDED(hrInit);
+
+    struct Target {
+        const KNOWNFOLDERID* folder;
+        const char* label; // UTF-8 显示名
+    };
+    const Target targets[] = {
+        {&FOLDERID_Desktop, "桌面"},
+        {&FOLDERID_Programs, "开始菜单"},
+    };
+
+    for (const Target& t : targets) {
+        auto dir = KnownFolderPath(*t.folder);
+        if (!dir) {
+            Warn(std::string("找不到") + t.label + "目录，跳过。");
+            continue;
+        }
+        const std::wstring lnk = JoinPath(*dir, kShortcutName);
+        std::string err;
+        if (CreateShortcutFile(lnk, launcher, kShortcutArguments, installDir, nodeExe,
+                               L"EhBrowser - E-Hentai 浏览器", err)) {
+            SayLine(std::string("  已创建") + t.label + "快捷方式：" + ToUtf8(lnk));
+        } else {
+            Warn(std::string("创建") + t.label + "快捷方式失败：" + err);
+        }
+    }
+
+    if (comOwned) CoUninitialize();
 }
 
 bool HandleMissingNode(const Options& o, bool elevated, std::wstring& nodeExeOut, int& exitCode) {
@@ -1226,7 +1413,7 @@ int RunInstaller(const Options& o) {
 
     if (!CheckWindowsVersion()) return kExitUnsupportedOs;
 
-    Say("[2/3] 检查 Node.js ... ");
+    Say("[2/4] 检查 Node.js ... ");
     NodeStatus node = DetectNode();
     if (NodeIsAcceptable(node)) {
         SayLine("已安装 " + VersionText(*node.version));
@@ -1260,7 +1447,15 @@ int RunInstaller(const Options& o) {
         return kExitOk;
     }
 
-    return InstallEhBrowser(node.exe, o);
+    std::wstring installDir;
+    const int code = InstallEhBrowser(node.exe, o, installDir);
+    if (code != kExitOk) return code;
+
+    SayLine();
+    Say("[4/4] 创建快捷方式 ...");
+    SayLine();
+    InstallShortcuts(installDir, node.exe, o);
+    return kExitOk;
 }
 
 int RunMain() {

@@ -95,11 +95,12 @@ npm start -- --no-open       # 不打开浏览器
 
 ### 方式三：Windows 安装器（从 Release 下载）
 
-不想自己装 Node、也不想碰命令行的 Windows 用户用这个：到 [Releases](https://github.com/EtherosGroup/EhBrowser/releases) 下载最新一版的 `EhBrowser-<版本>-installer.exe`，双击运行。它依次做三件事：
+不想自己装 Node、也不想碰命令行的 Windows 用户用这个：到 [Releases](https://github.com/EtherosGroup/EhBrowser/releases) 下载最新一版的 `EhBrowser-<版本>-installer.exe`，双击运行。它依次做四件事：
 
 1. 检查系统版本，低于 Windows 10（build 10240）直接退出，不做任何修改。
 2. 检查 Node.js：大版本 ≥ 22 就直接用（22.18.0 以下会警告「可能不够新」但继续）；没装或大版本低于 22 则询问是否由它下载并静默安装官方 MSI（取 nodejs.org 上最新的 v22.x；提权时默认装到 `C:\Program Files\nodejs`，非管理员时默认 `%LOCALAPPDATA%\Programs\nodejs`，都可改目录）。这一步通常需要管理员权限，非管理员运行时它会先问要不要提权重启。
 3. 执行 `npm install -g ehbrowser@latest`，装完打印 `ehbrowser` 的位置，以及新开终端后怎么启动。
+4. 询问是否在桌面和开始菜单各建一个 `EhBrowser` 快捷方式（默认建）。快捷方式指向 [启动器](#windows-安装器installerwindows)：双击后浏览器直接打开界面，不会闪出命令行窗口，通知区域还会多一个托盘图标。
 
 它是命令行程序，结束时停住等按空格再关窗口，方便看输出。参数：
 
@@ -108,11 +109,14 @@ EhBrowser-1.3.0-installer.exe -y                    :: 全部取默认值，不�
 EhBrowser-1.3.0-installer.exe --check               :: 只检查系统版本与 Node.js，不做任何修改
 EhBrowser-1.3.0-installer.exe --dry-run             :: 只打印将要执行的命令，不下载也不安装
 EhBrowser-1.3.0-installer.exe --node-dir D:\nodejs  :: 指定 Node.js 的安装目录
+EhBrowser-1.3.0-installer.exe --no-shortcuts        :: 不建快捷方式（--shortcuts 则跳过询问直接建）
 ```
 
-退出码：`0` 成功、`1` 参数错误、`2` 系统版本不支持、`3` 用户取消、`4` Node.js 安装失败、`5` ehbrowser 安装失败。
+退出码：`0` 成功、`1` 参数错误、`2` 系统版本不支持、`3` 用户取消、`4` Node.js 安装失败、`5` ehbrowser 安装失败。快捷方式没建成不会把退出码变成非 0（应用本身已经装好了），但会在输出里逐条报出原因。
 
-两点提醒：安装器没有代码签名，SmartScreen 可能先拦一下（「更多信息」→「仍要运行」）；它装的始终是 `ehbrowser@latest`，旧版安装器也会装到最新版，要固定版本就自己执行 `npm install -g ehbrowser@<版本>`。源码在 [`installer/windows/`](installer/windows)，可以自己看或自己编。
+**托盘图标**：右键菜单是「打开浏览器 / 查看日志 / 重启客户端 / 关闭客户端」，左键单击直接打开界面。再双击一次快捷方式不会起第二个客户端，只是请托盘把界面调出来。「关闭客户端」连托盘一起退出，也可以从界面里的「关闭服务」关（那样托盘会跟着收摊）。启动失败时（比如已经有一个在跑、端口被占）会弹消息框说明原因，客户端本来要打印到控制台的东西写在 `%LOCALAPPDATA%\ehbrowser\launcher.log`（跨次启动追加，超过 1 MiB 时清空）。
+
+三点提醒：安装器没有代码签名，SmartScreen 可能先拦一下（「更多信息」→「仍要运行」）；它装的始终是 `ehbrowser@latest`，旧版安装器也会装到最新版，要固定版本就自己执行 `npm install -g ehbrowser@<版本>`；卸载用 `npm uninstall -g ehbrowser`，桌面与开始菜单那两个快捷方式要自己删。源码在 [`installer/windows/`](installer/windows)，可以自己看或自己编。
 
 ## 使用
 
@@ -384,7 +388,7 @@ web/                 前端源码（Vue 单文件组件 + Vite），构建产物
     ├── SkeletonImage.vue        普通图片，带占位层
     └── SpriteImage.vue          精灵图缩略图，按偏移取格
 
-installer/windows/   Windows 安装器：单个 main.cpp + CMake 工程（MSVC、静态 CRT），产物是免运行库的 exe
+installer/windows/   Windows 安装器 + 隐藏启动器：两个 exe 的 CMake 工程（MSVC、静态 CRT，免运行库）
 
 scripts/
 └── portable.mjs   打便携包：组装目录 + 自己按 PKZIP 格式写 zip（不引第三方依赖）
@@ -629,9 +633,9 @@ EhBrowser-1.0.0/
 
 ### Windows 安装器（`installer/windows`）
 
-`installer/windows/` 是一个独立的 CMake 工程（单个 `main.cpp`、一个 `CMakeLists.txt`、一个 `CMakePresets.json`），不依赖仓库里的 Node 工具链：
+`installer/windows/` 是一个独立的 CMake 工程（`main.cpp` 是安装器、`launcher.cpp` 是隐藏启动器，加一个 `CMakeLists.txt`、一个 `CMakePresets.json`），不依赖仓库里的 Node 工具链：
 
-- `x64-Release` 预设用 `Visual Studio 18 2026` 生成器：`/O2` + LTCG + 静态 CRT（`/MT`）+ CFG，产物是单个 `ehbrowser-installer.exe`，目标机器不需要 VC++ 运行库。本地构建（需要 VS 2026 与 CMake ≥ 4.2）：
+- `x64-Release` 预设用 `Visual Studio 18 2026` 生成器：`/O2` + LTCG + 静态 CRT（`/MT`）+ CFG，两个 exe 都不需要目标机器装 VC++ 运行库。本地构建（需要 VS 2026 与 CMake ≥ 4.2）：
 
     ```powershell
     cd installer\windows
@@ -639,11 +643,21 @@ EhBrowser-1.0.0/
     cmake --build --preset x64-Release
     ```
 
-    产物在 `installer/windows/out/build/x64-Release/bin/Release/`（`out/` 已进 `.gitignore`）。
+    产物在 `installer/windows/out/build/x64-Release/`：安装器是 `bin/Release/ehbrowser-installer.exe`，启动器是 `bin/launcher/ehbrowser-launcher.exe`（`out/` 已进 `.gitignore`）。
 
-- 它做三件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g ehbrowser@latest`。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
+- 安装器做四件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g ehbrowser@latest`、按需创建快捷方式。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
 - 装的始终是 `ehbrowser@latest`：安装器自己不绑定版本，因此旧版安装器也会装到最新版。
+- **启动器**（`launcher.cpp`）是个子系统为 WINDOWS 的小程序，自己没有控制台：它用 `CreateProcessW` + `CREATE_NO_WINDOW` 起 `cmd.exe` 跑 `ehbrowser`，所以双击快捷方式不会闪命令行窗口。快捷方式指向它、参数是 `ehbrowser`，图标取 node.exe。要隐藏窗口只能这么做：`.lnk` 的「运行方式」只有常规/最大化/最小化，没有隐藏。
+- 藏起来之后客户端就没人管得了，所以启动器常驻通知区域：右键菜单「打开浏览器 / 查看日志 / 重启客户端 / 关闭客户端」，左键单击直接打开界面。它按窗口类名做单实例——托盘在跑时再双击快捷方式只是请托盘打开浏览器，不会起第二个客户端。
+- 子进程放进一个 job 对象（`KILL_ON_JOB_CLOSE`；先挂起创建、挂上后再放行，免得 cmd 抢先把 node 生出来），所以「重启 / 关闭」连 cmd 带 node 一起收掉，托盘自己被结束掉时也不会留下孤儿 node。代价是客户端不走自己的退出收尾：配置是原子写、SQLite 有日志（实测不丢），只是它最后那几行日志可能少一笔。
+- 「打开浏览器」「查看日志」不用另配端口与目录：客户端启动横幅里有「地址：」和「日志：」两行，启动器从 `launcher.log` 里解析出来，自定义端口、自定义日志目录都能跟上。「查看日志」打开该目录下最新的 `ehbrowser-<日期>.log`，还没有就退回 `launcher.log`。
+- 启动器优先用与自己同目录的那份 `ehbrowser.cmd`，那份没起来再退回按 PATH 找。不能靠退出码判断「命令没找到」——cmd 对「找不到命令」和「命令自己失败」都给退出码 1；按目录定先后，才能在刚装完 Node、Explorer 的环境块还没刷新时也起得来。
+- 「起来没有」以横幅里的「地址：」为准（那是客户端 listen 成功之后才打印的）：只看进程还活着，会把「端口被占、卡在那儿」误判成起来了，托盘就会挂着一个不能用的客户端。一直没等到就把它收掉并报错。
+- 启动失败只在有交互桌面时弹消息框（服务/SSH 这类会话里没人点，弹了就是一直等），两种情况下都往 `launcher.log` 记一笔。
+- 启动器整个嵌在安装器的资源里（`installer.rc.in` 由 `configure_file` 生成，`EHBROWSER_LAUNCHER` 这个名字的资源），装完后释放到 npm 全局目录，所以 **Release 附件仍然只有一个 exe**。它把子进程的输出写进 `%LOCALAPPDATA%\ehbrowser\launcher.log`（跨次启动追加，超过 1 MiB 时清空），几秒内失败退出时用 MessageBox 把日志尾巴弹出来——隐藏模式最怕静默失败。
+- 快捷方式由 `IShellLinkW` 直接生成，桌面用 `FOLDERID_Desktop`、开始菜单用 `FOLDERID_Programs`，因此 OneDrive 那类桌面重定向也能跟对目录。
 - CI 由 `release.yml` 的 `installer` job 在 `windows-2025` 上构建，产物命名为 `EhBrowser-<版本>-installer.exe` 作为 Release 附件。没有代码签名。
+- 卸载：`npm uninstall -g ehbrowser` 不会动快捷方式与启动器，要自己删桌面/开始菜单的 `EhBrowser.lnk` 和 npm 全局目录里的 `ehbrowser-launcher.exe`。
 
 ### 发到 npm
 

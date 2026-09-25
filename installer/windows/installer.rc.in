@@ -1,0 +1,17 @@
+#pragma code_page(65001)
+/*
+ * 由 CMake 的 configure_file 生成（模板是 installer.rc.in）。
+ *
+ * 把隐藏启动器整个嵌进安装器，装完后由安装器释放到 npm 全局目录，快捷方式再指向它。
+ *
+ * 资源名必须写成不带引号的标识符：写成 "EHBROWSER_LAUNCHER" 时 rc 会把引号当成名字的一部分
+ * 存进资源目录，C++ 侧 FindResourceW(nullptr, L"EHBROWSER_LAUNCHER", RT_RCDATA) 就报
+ * 1814（ERROR_RESOURCE_NAME_NOT_FOUND）——实测过四种写法：裸标识符得到正确的名字，加引号
+ * 名字里就带引号，写成数字则名字是序号。所以这里不要给名字加引号。
+ *
+ * 另外 rc 把字符串里的反斜杠当转义（\x64 会被吃成 "d"），路径里的反斜杠要写成两个；
+ * CMake 给的 ${CMAKE_BINARY_DIR} 本来就是正斜杠，下面那步替换只是兜底。
+ *
+ * 第一行的 code_page 是让 rc 按 UTF-8 读本文件（否则它按系统 ANSI 代码页读，中文注释会变乱码）。
+ */
+EHBROWSER_LAUNCHER RCDATA "@EHBROWSER_LAUNCHER_EXE_RC@"

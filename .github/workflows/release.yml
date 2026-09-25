@@ -121,6 +121,22 @@ jobs:
                   $exe = "installer\windows\out\build\x64-Release\bin\Release\ehbrowser-installer.exe"
                   if (-not (Test-Path $exe)) { throw "没找到安装器产物：$exe" }
 
+                  # 快捷方式要用的隐藏启动器是另一个 exe（GUI 子系统），它得先被生成出来。
+                  # 只检查它在不在、有没有被嵌进安装器——别在这里运行它：它起来后会常驻
+                  # 通知区域（消息循环不退出），CI 里会一直挂着
+                  $launcher = "installer\windows\out\build\x64-Release\bin\launcher\ehbrowser-launcher.exe"
+                  if (-not (Test-Path $launcher)) { throw "没找到隐藏启动器：$launcher" }
+                  # 安装器把启动器整个嵌在资源里，所以它必定比启动器大；不成立说明资源没嵌进去
+                  if ((Get-Item $exe).Length -le (Get-Item $launcher).Length) {
+                      throw "安装器（$((Get-Item $exe).Length) 字节）不比启动器（$((Get-Item $launcher).Length) 字节）大，资源可能没嵌进去"
+                  }
+                  # 资源名必须是裸标识符：rc 遇到 "EHBROWSER_LAUNCHER"（带引号）会把引号也算进名字，
+                  # 运行时的 FindResourceW 就报 1814。扫一遍 PE 里的名字，带引号的写法不该再出现
+                  $peText = [Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($exe))
+                  if ($peText.Contains('"EHBROWSER_LAUNCHER"')) {
+                      throw "资源名里带上了引号，安装器运行时找不到启动器资源（说明见 installer.rc.in 开头）"
+                  }
+
                   # 安装器退出前会等空格键（main.cpp 的 WaitForSpaceKey），但只在 stdin 是控制台时等。
                   # CI 里把 stdin 接一个空文件，GetConsoleMode 会失败，它立即返回，不会挂住这一步。
                   $stdinPath = (New-TemporaryFile).FullName
@@ -136,7 +152,7 @@ jobs:
                   if (-not (Select-String -Path $stdoutPath -Pattern 'ehbrowser-installer\.exe' -Quiet)) {
                       throw "安装器 --help 的输出里没有用法说明"
                   }
-                  Write-Host "安装器可以运行，--help 退出码 0"
+                  Write-Host "安装器可以运行，--help 退出码 0；启动器已生成并嵌入"
 
             # 附件名与便携包对齐：EhBrowser-<版本>-installer.exe
             - name: 归置产物
