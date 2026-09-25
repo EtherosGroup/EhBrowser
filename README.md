@@ -12,6 +12,7 @@ PC 端的 E-Hentai 浏览器。形态为本地服务 + 浏览器界面：进程�
 - [安装](#安装)
     - [方式一：npm 全局安装](#方式一npm-全局安装)
     - [方式二：从源码运行（clone 后自己跑）](#方式二从源码运行clone-后自己跑)
+    - [方式三：Windows 安装器（从 Release 下载）](#方式三windows-安装器从-release-下载)
 - [使用](#使用)
 - [配置与数据目录](#配置与数据目录)
 - [账号与 Cookie](#账号与-cookie)
@@ -23,6 +24,7 @@ PC 端的 E-Hentai 浏览器。形态为本地服务 + 浏览器界面：进程�
 - [发布](#发布)
     - [打标签与发 Release](#打标签与发-release)
     - [便携包（`npm run release:portable`）](#便携包npm-run-releaseportable)
+    - [Windows 安装器（`installer/windows`）](#windows-安装器installerwindows)
     - [发到 npm](#发到-npm)
 - [当前状态](#当前状态)
 - [许可](#许可)
@@ -36,6 +38,8 @@ PC 端的 E-Hentai 浏览器。形态为本地服务 + 浏览器界面：进程�
 | 账号    | E-Hentai 账号。访问里站要求账号具备 ex 权限                                 |
 
 运行时依赖 `undici`（HTTP 传输与代理）。`typescript`、`oxfmt` 只用于开发。
+
+Windows 上不想自己装 Node.js 的话，用[方式三](#方式三windows-安装器从-release-下载)的安装器，它会代装。
 
 ## 安装
 
@@ -88,6 +92,27 @@ npm start -- --no-open       # 不打开浏览器
 | 提示端口被占用                            | 改用 `--port` 指定其他端口，或结束占用 7727 的进程                                         |
 | `npm ci` 报锁文件与 `package.json` 不一致 | 依赖改过，锁文件未更新。执行 `npm install` 重新生成，并把 `package-lock.json` 一起提交     |
 | 改了源码，界面没变化                      | 界面产物需要重新构建：前端改动执行 `npm run dev:web`（或 `npm run build:web`），再刷新页面 |
+
+### 方式三：Windows 安装器（从 Release 下载）
+
+不想自己装 Node、也不想碰命令行的 Windows 用户用这个：到 [Releases](https://github.com/EtherosGroup/EhBrowser/releases) 下载最新一版的 `EhBrowser-<版本>-installer.exe`，双击运行。它依次做三件事：
+
+1. 检查系统版本，低于 Windows 10（build 10240）直接退出，不做任何修改。
+2. 检查 Node.js：大版本 ≥ 22 就直接用（22.18.0 以下会警告「可能不够新」但继续）；没装或大版本低于 22 则询问是否由它下载并静默安装官方 MSI（取 nodejs.org 上最新的 v22.x；提权时默认装到 `C:\Program Files\nodejs`，非管理员时默认 `%LOCALAPPDATA%\Programs\nodejs`，都可改目录）。这一步通常需要管理员权限，非管理员运行时它会先问要不要提权重启。
+3. 执行 `npm install -g ehbrowser@latest`，装完打印 `ehbrowser` 的位置，以及新开终端后怎么启动。
+
+它是命令行程序，结束时停住等按空格再关窗口，方便看输出。参数：
+
+```bat
+EhBrowser-1.3.0-installer.exe -y                    :: 全部取默认值，不询问（无人值守用）
+EhBrowser-1.3.0-installer.exe --check               :: 只检查系统版本与 Node.js，不做任何修改
+EhBrowser-1.3.0-installer.exe --dry-run             :: 只打印将要执行的命令，不下载也不安装
+EhBrowser-1.3.0-installer.exe --node-dir D:\nodejs  :: 指定 Node.js 的安装目录
+```
+
+退出码：`0` 成功、`1` 参数错误、`2` 系统版本不支持、`3` 用户取消、`4` Node.js 安装失败、`5` ehbrowser 安装失败。
+
+两点提醒：安装器没有代码签名，SmartScreen 可能先拦一下（「更多信息」→「仍要运行」）；它装的始终是 `ehbrowser@latest`，旧版安装器也会装到最新版，要固定版本就自己执行 `npm install -g ehbrowser@<版本>`。源码在 [`installer/windows/`](installer/windows)，可以自己看或自己编。
 
 ## 使用
 
@@ -359,11 +384,13 @@ web/                 前端源码（Vue 单文件组件 + Vite），构建产物
     ├── SkeletonImage.vue        普通图片，带占位层
     └── SpriteImage.vue          精灵图缩略图，按偏移取格
 
+installer/windows/   Windows 安装器：单个 main.cpp + CMake 工程（MSVC、静态 CRT），产物是免运行库的 exe
+
 scripts/
 └── portable.mjs   打便携包：组装目录 + 自己按 PKZIP 格式写 zip（不引第三方依赖）
 
 .github/workflows/
-├── release.yml        推 v* 标签 -> 构建 + 打便携包 -> 建 Release 并附上附件
+├── release.yml        推 v* 标签 -> 构建便携包与安装器 -> 建 Release 并附上两个附件
 └── publish-npm.yml    推 v* 标签 / 手动触发 -> 发 npm（Trusted Publishing）
 ```
 
@@ -562,7 +589,7 @@ scripts/
 
 ## 发布
 
-面向维护者：打标签 -> 发 Release（附便携包）-> 发 npm。
+面向维护者：打标签 -> 发 Release（附便携包与 Windows 安装器）-> 发 npm。
 
 ### 打标签与发 Release
 
@@ -573,12 +600,14 @@ git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .g
 
 一个标签会触发**两条工作流，互不依赖**：
 
-- `release.yml`：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并把便携包作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
+- `release.yml`：两个构建 job 并行，最后由一个 release job 汇总发版。便携包那条在 ubuntu-24.04 上跑：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 把 zip 传成 workflow artifact。安装器那条在 windows-2025（当前即 VS 2026 镜像）上跑：同样的版本核对 -> `cmake --preset x64-Release` -> `cmake --build --preset x64-Release` -> 跑一次 `--help` 冒烟测试 -> 把 exe 改名为 `EhBrowser-<版本>-installer.exe` 后传成 workflow artifact。release job 等两个构建都成功，从 artifact 取回两个产物，用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
 - `publish-npm.yml`：同样的构建与核对，然后把这一版发到 npm（`npm publish --provenance --access public`），用 Trusted Publishing 的 OIDC 临时凭证。它先查该版本是否已经在 npm 上，已发过就跳过，因此重复推标签不会多出一条失败记录。
+
+两个构建各传 artifact、再由第三个 job 汇总，是因为安装器只能在 Windows 上用 MSVC 编，而便携包适合在 Linux 上打（`portable.mjs` 按 unix 的 mode 位记录 `启动.sh` 的可执行位）：分开跑能并行，且同一时刻只有一个 job 会碰 Release——两个 job 同时 `gh release create` 同一个标签会撞车（先到的建成功，后到的 422）。两个构建都成功才发版，因此不会留下只有一半附件的 Release。
 
 两条分开跑而不是让 `release.yml` 调用 `publish-npm.yml`，是因为 **npm 的 Trusted Publisher 认的是触发这次运行的入口工作流**，不是真正执行发布的那一个。实测：用 `uses: ./.github/workflows/publish-npm.yml` 调用时，OIDC 拿得到、provenance 也签名上传了，但 registry 回 `404 Not Found - PUT https://registry.npmjs.org/ehbrowser`；直接跑 `publish-npm.yml`（手动或推标签）就成功（1.0.1、1.0.2 都是这么发的）。要让被调用的形式也成立，得去 npm 侧把工作流文件名改成 `release.yml`，不如让这个工作流自己盯标签。
 
-手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
+手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 与 exe 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
 
 ### 便携包（`npm run release:portable`）
 
@@ -597,6 +626,24 @@ EhBrowser-1.0.0/
 - 绿色版：启动脚本把 `EHBROWSER_HOME` 指到包目录，配置、数据库、缓存与默认下载目录都存放在包内（实测 `/api/config/paths` 三个根目录的来源都是 `portable-home`）。删除该行后恢复到按用户目录存放。
 - 产物不进仓库：落在 `release/`（已加进 `.gitignore`），由 CI 作为 Release 附件上传。实测 280 个文件、约 800 KB。
 - zip 由脚本按 PKZIP 格式自行写入（项目不引第三方依赖，Node 没有内置的 zip 写入，只有 zlib）：自行拼接本地文件头与中央目录，文件名打 UTF-8 标记（启动脚本名是中文），`启动.sh` 用外部属性保留可执行位。
+
+### Windows 安装器（`installer/windows`）
+
+`installer/windows/` 是一个独立的 CMake 工程（单个 `main.cpp`、一个 `CMakeLists.txt`、一个 `CMakePresets.json`），不依赖仓库里的 Node 工具链：
+
+- `x64-Release` 预设用 `Visual Studio 18 2026` 生成器：`/O2` + LTCG + 静态 CRT（`/MT`）+ CFG，产物是单个 `ehbrowser-installer.exe`，目标机器不需要 VC++ 运行库。本地构建（需要 VS 2026 与 CMake ≥ 4.2）：
+
+    ```powershell
+    cd installer\windows
+    cmake --preset x64-Release
+    cmake --build --preset x64-Release
+    ```
+
+    产物在 `installer/windows/out/build/x64-Release/bin/Release/`（`out/` 已进 `.gitignore`）。
+
+- 它做三件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g ehbrowser@latest`。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
+- 装的始终是 `ehbrowser@latest`：安装器自己不绑定版本，因此旧版安装器也会装到最新版。
+- CI 由 `release.yml` 的 `installer` job 在 `windows-2025` 上构建，产物命名为 `EhBrowser-<版本>-installer.exe` 作为 Release 附件。没有代码签名。
 
 ### 发到 npm
 

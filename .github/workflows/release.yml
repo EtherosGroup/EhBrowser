@@ -1,19 +1,25 @@
-# 推一个 v* 标签即发布一个 Release，并附上便携包
+# 推一个 v* 标签即发布一个 Release，附便携包与 Windows 安装器
 #
 #   npm version minor
 #   git push origin HEAD --tags
 #
 # 同一个标签会触发两条工作流，互不依赖：
-#   本文件：构建 + 打便携包 -> 建 Release 并附上附件
+#   本文件：构建便携包 + 构建 Windows 安装器 -> 建 Release 并附上这两个附件
 #   publish-npm.yml：把这一版发到 npm（它自己盯 v* 标签，原因见该文件头部：
 #   npm 的 Trusted Publisher 认触发运行的入口工作流，用 workflow_call 被本文件调用会 404）
 #
 # 不需要任何密钥：创建 Release 与上传附件用仓库自带的 GITHUB_TOKEN，
 # 发 npm 走 Trusted Publishing 的 OIDC 临时凭证。
 # 便携包由 scripts/portable.mjs 生成（内含 npm run build），内容与体积见 README「发布」一节。
+# 安装器是 installer/windows 下的 CMake 工程，只依赖 MSVC 工具链，因此单放一个 Windows job。
+#
+# 为什么拆成三个 job：两个构建 job 互不依赖、各自把产物传成 workflow artifact，
+# 最后由 release job 汇总。这样两条构建可以并行，且只有一个 job 会碰 Release——
+# 两个 job 同时 gh release create 同一个标签会撞车（先到的建成功，后到的 422）。
+# 两个构建都成功才发版：要么两个附件一起发，要么都不发，不留半个 Release。
 #
 # 手动触发（Actions 页面或 gh workflow run release.yml）走的是演练路径：
-# 同样构建与打包，但只把 zip 上传为 workflow artifact，不创建 Release、不打标签、也不发 npm。
+# 同样构建与打包，但只把 zip 与 exe 上传为 workflow artifact，不创建 Release、不打标签、也不发 npm。
 # 因此正式发版之前可以先把产物下载下来核验一遍。
 
 name: release
@@ -37,8 +43,6 @@ jobs:
         # 固定镜像版本：ubuntu-latest 会随 GitHub 的迁移计划更换，构建环境不应随之改变
         runs-on: ubuntu-24.04
         timeout-minutes: 15
-        permissions:
-            contents: write # 创建 Release、上传附件
         steps:
             - uses: actions/checkout@v7
 
@@ -69,27 +73,128 @@ jobs:
             # 内含 npm run build，产物为 release/EhBrowser-<版本>-portable.zip 与同名目录
             - run: npm run release:portable
 
-            - name: 演练产物（手动触发时）
-              if: github.event_name == 'workflow_dispatch'
+            # 推标签时由 release job 取出来发版，手动触发时留作演练产物，因此两条路都上传
+            - name: 暂存便携包
               uses: actions/upload-artifact@v7
               with:
                   name: portable-${{ github.sha }}
                   path: release/*-portable.zip
                   if-no-files-found: error
 
-            - name: 建 Release 并附上便携包
+    installer:
+        # 固定镜像版本。windows-2025 当前就是 VS 2026 的镜像（内含 CMake 4.4.3 与 Node 24），
+        # 而 CMakePresets.json 写死的生成器是 "Visual Studio 18 2026"——它由 CMake 4.2 引入、
+        # 需要 VS 2026。镜像换 VS 大版本时，这里与 installer/windows/CMakePresets.json 一起改。
+        runs-on: windows-2025
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v7
+
+            # 与便携包那条同样的核对。安装器附件名带版本号，不一致就早失败，
+            # 不要让一个 exe 与 zip 版本对不上的 Release 发出去
+            - name: 核对标签与 package.json 的版本
               if: github.event_name == 'push'
+              shell: pwsh
+              run: |
+                  $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+                  $tag = "${{ github.ref_name }}"
+                  if ($tag -ne "v$version") {
+                      Write-Host "标签是 $tag，但 package.json 里是 v$version。"
+                      Write-Host "先跑 npm version 改版本号并提交，再用同名标签。"
+                      exit 1
+                  }
+                  Write-Host "版本对得上：$tag"
+
+            # 用仓库里的预设，而不是在 workflow 里把编译参数重写一遍：本地怎么编，CI 就怎么编
+            - name: 配置（x64-Release）
+              working-directory: installer/windows
+              run: cmake --preset x64-Release
+
+            - name: 构建
+              working-directory: installer/windows
+              run: cmake --build --preset x64-Release
+
+            # 产物是静态链接 CRT 的单个 exe，但仍跑一次确认它在这台机器上起得来、也退得出去
+            - name: 冒烟测试（--help）
+              shell: pwsh
+              run: |
+                  $exe = "installer\windows\out\build\x64-Release\bin\Release\ehbrowser-installer.exe"
+                  if (-not (Test-Path $exe)) { throw "没找到安装器产物：$exe" }
+
+                  # 安装器退出前会等空格键（main.cpp 的 WaitForSpaceKey），但只在 stdin 是控制台时等。
+                  # CI 里把 stdin 接一个空文件，GetConsoleMode 会失败，它立即返回，不会挂住这一步。
+                  $stdinPath = (New-TemporaryFile).FullName
+                  $stdoutPath = (New-TemporaryFile).FullName
+                  $stderrPath = (New-TemporaryFile).FullName
+                  $proc = Start-Process -FilePath $exe -ArgumentList "--help" -NoNewWindow -Wait -PassThru `
+                      -RedirectStandardInput $stdinPath -RedirectStandardOutput $stdoutPath `
+                      -RedirectStandardError $stderrPath
+
+                  Get-Content $stdoutPath
+                  Get-Content $stderrPath
+                  if ($proc.ExitCode -ne 0) { throw "安装器 --help 退出码 $($proc.ExitCode)" }
+                  if (-not (Select-String -Path $stdoutPath -Pattern 'ehbrowser-installer\.exe' -Quiet)) {
+                      throw "安装器 --help 的输出里没有用法说明"
+                  }
+                  Write-Host "安装器可以运行，--help 退出码 0"
+
+            # 附件名与便携包对齐：EhBrowser-<版本>-installer.exe
+            - name: 归置产物
+              shell: pwsh
+              run: |
+                  $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+                  New-Item -ItemType Directory -Force -Path release | Out-Null
+                  $dst = "release\EhBrowser-$version-installer.exe"
+                  Copy-Item "installer\windows\out\build\x64-Release\bin\Release\ehbrowser-installer.exe" $dst
+                  Get-Item $dst | Select-Object Name, Length
+
+            - name: 暂存安装器
+              uses: actions/upload-artifact@v7
+              with:
+                  name: installer-${{ github.sha }}
+                  path: release/*-installer.exe
+                  if-no-files-found: error
+
+    release:
+        # 两个产物都齐了才发版
+        needs: [portable, installer]
+        if: github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: write # 创建 Release、上传附件
+        steps:
+            # 这个 job 不需要 checkout：产物全从 artifact 取，gh 认 GITHUB_TOKEN 与仓库环境变量
+            - name: 取便携包
+              uses: actions/download-artifact@v7
+              with:
+                  name: portable-${{ github.sha }}
+                  path: assets/portable
+
+            - name: 取安装器
+              uses: actions/download-artifact@v7
+              with:
+                  name: installer-${{ github.sha }}
+                  path: assets/installer
+
+            - name: 建 Release 并附上便携包与安装器
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAG: ${{ github.ref_name }}
               run: |
                   set -e
+                  files=(assets/portable/*-portable.zip assets/installer/*-installer.exe)
+                  # 少一个附件就整个失败：宁可没有 Release，也不要一个附件不全的 Release
+                  for f in "${files[@]}"; do
+                    test -f "$f" || { echo "缺少附件：$f"; exit 1; }
+                  done
+                  ls -l "${files[@]}"
                   if gh release view "$TAG" >/dev/null 2>&1; then
-                    gh release upload "$TAG" release/*-portable.zip --clobber
+                    gh release upload "$TAG" "${files[@]}" --clobber
                   else
                     gh release create "$TAG" \
                       --title "$TAG" \
                       --generate-notes \
-                      release/*-portable.zip
+                      "${files[@]}"
                   fi
                   gh release view "$TAG" --json url --jq .url
