@@ -1,6 +1,6 @@
 {
     "name": "ehbrowser",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "description": "PC 端的 E-Hentai 浏览器：本地服务 + 浏览器界面，支持搜索、阅读、下载与本地库",
     "keywords": [
         "browser",
