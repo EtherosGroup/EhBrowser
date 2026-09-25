@@ -218,14 +218,14 @@ export function isLoginRequired(response: UpstreamResponse): boolean {
  * 此时被cf认定为风险，不是账号密码错误
  */
 export function isUpstreamChallenge(response: UpstreamResponse): boolean {
-    // Cloudflare 会显式加这个头，比正文匹配可靠
+    // Cloudflare 会加这个响应头
     if ((response.headers["cf-mitigated"] ?? "") !== "") {
         return true;
     }
     return /__cf_chl|challenge-platform|Just a moment/i.test(response.text.slice(0, 4096));
 }
 
-/** 上游用人机校验挡下了请求。服务端据此回上游不可用语义，而非 400*/
+// 上游人机校验错误
 export class UpstreamChallengeError extends Error {
     constructor(message: string) {
         super(message);

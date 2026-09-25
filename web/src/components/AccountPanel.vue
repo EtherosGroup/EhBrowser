@@ -20,11 +20,11 @@ const manualMemberId = ref("");
 const manualPassHash = ref("");
 const manualIgneous = ref("");
 
-/** 粘贴区。它只负责把整串 Cookie 拆进下面三个字段，字段本身仍可手改 */
+// 粘贴区
 const pasted = ref("");
 const ignoredCookies = ref<readonly string[]>([]);
 
-/** 两份凭据 cookie 缺一不可；igneous 由服务端在导入后补取，所以不算门槛 */
+// 两份凭据 cookie 必填
 const credentialReady = computed(
     () => manualMemberId.value !== "" && manualPassHash.value !== "",
 );
@@ -52,14 +52,10 @@ const browserNote = computed(() => status.value?.browserLogin.message ?? "");
 const browserBusy = computed(
     () => browserPhase.value === "launching" || browserPhase.value === "waiting",
 );
-/** 开窗前的确认弹窗：窗口会抢走焦点，先说清接下来会发生什么 */
+// 开窗前的确认弹窗
 const askBrowserLogin = ref(false);
 
-/*
- * 窗口开着的时候只有服务端知道进度（挑战过没过、用户登到哪一步）。这段时间很短（最多几分钟），
- * 而且只在用户主动发起时才有，所以用短轮询而不是为此常驻第二条 SSE 连接 ——
- * 本项目对每个标签页的并发连接数是计较的（见 README 的已知限制）。
- */
+// 浏览器登录期间轮询状态
 let pollTimer: number | null = null;
 
 function stopBrowserPolling(): void {
@@ -97,7 +93,7 @@ function startBrowserLogin(): void {
             status.value = await request("auth.browserLogin.start", {
                 body: { site: site.value },
             });
-            // 状态拿到「已受理」之后才开始轮询，免得抢在服务端置位之前空转
+            // 受理后才开始轮询
             stopBrowserPolling();
             pollTimer = window.setInterval(() => void pollBrowserLogin(), 1500);
         } catch (caught) {
@@ -147,10 +143,7 @@ function login(): void {
     }, "登录完成");
 }
 
-/*
- * 导入不套 run()：igneous 有没有取到决定这条提示该是成功还是警告，
- * 而 run() 的文案是在动作开始前就定下来的
- */
+// 提示文案取决于取 igneous 的结果
 async function importCookies(): Promise<void> {
     busy.value = true;
     try {
@@ -205,7 +198,7 @@ function remove(id: string): void {
 }
 
 onMounted(() => {
-    // 页面重载时可能正有一个会话在进行，把轮询接上
+    // 重载后接上轮询
     void load().then(() => {
         if (browserBusy.value) {
             pollTimer = window.setInterval(() => void pollBrowserLogin(), 1500);
@@ -502,7 +495,7 @@ td {
     margin-bottom: 12px;
 }
 
-/* 浏览器登录：按钮与状态行同一排，状态文字跟着阶段变色 */
+/* 浏览器登录区 */
 .browser-login {
     display: flex;
     flex-wrap: wrap;
@@ -524,7 +517,7 @@ td {
     color: var(--danger);
 }
 
-/* 识别结果：逐行说清「认到了什么、缺什么、忽略了什么」 */
+/* 识别结果 */
 .recog {
     display: grid;
     gap: 2px;

@@ -154,7 +154,7 @@ async function main(): Promise<void> {
             }
             const credentials = ctx.auth.get().proxyAuth;
             return {
-                // Chromium 的 socks5 是通的，这里原样交给它（传输层那边不支持 socks5）
+                // 原样交给 Chromium
                 server: `${proxy.protocol}://${proxy.host}:${proxy.port}`,
                 ...(credentials.username === "" ? {} : { username: credentials.username }),
                 ...(credentials.password === "" ? {} : { password: credentials.password }),

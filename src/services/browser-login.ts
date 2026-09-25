@@ -3,30 +3,30 @@ import type { BrowserContext, BrowserType } from "playwright-core";
 import { pickLoginCookies, type CookieMap, type LoginCookies } from "../eh/index.ts";
 import { describeError } from "../platform/errors.ts";
 
-/** 交给浏览器的代理。与传输层那份配置同源，见 main.ts 的 proxy 回调 */
+// 浏览器代理
 export interface BrowserProxy {
     readonly server: string;
     readonly username?: string;
     readonly password?: string;
 }
 
-/** 一次已打开的登录会话 */
+// 登录会话
 export interface BrowserLoginSession {
-    /** 用户在窗口里登录完成后给出凭据；取消、超时或窗口被关掉则 reject */
+    // 登入凭据
     readonly credentials: Promise<LoginCookies>;
-    /** 关窗（幂等，重复调用或窗口已关都不报错） */
+    // 关闭窗口
     close(): Promise<void>;
 }
 
 export interface BrowserLoginRunner {
-    /** 便宜的硬条件自检（比如有没有图形界面）。真正缺浏览器要到 open 时才知道 */
+    // 环境自检
     availability(): { readonly ok: true } | { readonly ok: false; readonly reason: string };
-    /** 开窗并开始等登录；抛错即启动失败，原因要能直接给用户看 */
+    // 打开窗口并等待登录
     open(options: {
         readonly timeoutMs: number;
         readonly signal: AbortSignal;
     }): Promise<BrowserLoginSession>;
-    /** 进程退出前收摊，别留下没人管的浏览器 */
+    // 关闭所有窗口
     shutdown(): Promise<void>;
 }
 
@@ -45,28 +45,26 @@ export class BrowserLoginCancelledError extends Error {
 }
 
 export interface BrowserLoginRunnerOptions {
-    /** 独立且持久化的浏览器配置目录：不碰用户日常浏览器的配置，且第二次登录常常不用再过挑战 */
+    // 浏览器配置目录
     readonly profileDir: string;
-    /** 避免代理凭据缓存在内存里 */
+    // 读取当前代理
     readonly proxy: () => BrowserProxy | null;
     readonly loginUrl?: string;
     readonly logger?: (level: "info" | "warn", message: string) => void;
-    /** 轮询 cookie 的间隔 */
+    // 轮询间隔
     readonly pollMs?: number;
-    /** 打开登录页的超时 */
+    // 打开登录页超时
     readonly openTimeoutMs?: number;
-    /** 候选浏览器，按顺序试；默认见 CHANNELS（系统 Edge/Chrome 优先） */
+    // 候选浏览器
     readonly channels?: readonly (string | undefined)[];
 }
 
 const DEFAULT_LOGIN_URL = "https://forums.e-hentai.org/index.php?act=Login&CODE=00";
 
-/**
- * 优先用系统里已装的浏览器，都不在时退回 Playwright 自带的 Chromium
- */
+// 候选浏览器顺序
 const CHANNELS: readonly (string | undefined)[] = ["msedge", "chrome", undefined];
 
-/** 从浏览器内核的 cookie 中提取凭据 */
+// 提取凭据 cookie
 function credentialsOf(cookies: readonly { name: string; value: string }[]): LoginCookies | null {
     const map: CookieMap = {};
     for (const cookie of cookies) {
@@ -84,9 +82,7 @@ function credentialsOf(cookies: readonly { name: string; value: string }[]): Log
         : { ipbMemberId: memberId, ipbPassHash: passHash, ipbSessionId: sessionId };
 }
 
-/**
- * 轮询 cookie 直到拿到凭据
- */
+// 轮询 cookie
 function watchCredentials(
     context: BrowserContext,
     options: { readonly timeoutMs: number; readonly pollMs: number; readonly signal: AbortSignal },
@@ -96,6 +92,7 @@ function watchCredentials(
     const credentials = new Promise<LoginCookies>((resolve, reject) => {
         let settled = false;
 
+        // 统一收尾
         function settle(action: () => void): void {
             if (settled) {
                 return;
@@ -118,7 +115,7 @@ function watchCredentials(
                     }
                 })
                 .catch(() => {
-                    // 窗口正在关时读 cookie 会失败，交给 close 事件收尾
+                    // 忽略读取失败
                 });
         }, options.pollMs);
 
@@ -153,6 +150,7 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
     const loginUrl = options.loginUrl ?? DEFAULT_LOGIN_URL;
     let live: BrowserContext | null = null;
 
+    // 是否拥有桌面环境
     function availability(): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
         if (
             process.platform === "linux" &&
@@ -167,7 +165,7 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
         return { ok: true };
     }
 
-    /** 动态导入：没装 playwright-core 时服务端照常启动，只是这条功能给出明确原因 */
+    // 动态导入 playwright-core
     async function loadChromium(): Promise<BrowserType> {
         try {
             const module = await import("playwright-core");
@@ -189,7 +187,7 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
                 const context = await chromium.launchPersistentContext(options.profileDir, {
                     headless: false,
                     viewport: null,
-                    // 实测这一条是过 Cloudflare 的关键之一：不加就等于举手说自己是自动化
+                    // 禁用自动化标识
                     args: ["--disable-blink-features=AutomationControlled"],
                     ...(channel === undefined ? {} : { channel }),
                     ...(proxy === null ? {} : { proxy }),
@@ -202,6 +200,7 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
             } catch (error) {
                 const first = describeError(error).split("\n")[0] ?? "";
                 attempts.push(`${label}: ${first}`);
+                // 候选不可用时尝试下一个
                 if (
                     !/Executable doesn't exist|is not found|Cannot find|Unsupported (chromium )?channel/i.test(
                         first,
@@ -212,7 +211,6 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
             }
         }
         throw new Error(
-            // 
             "未找到可用的浏览器。请先安装浏览器或者 " +
                 "使用 `npx playwright install chromium` 来安装一个浏览器内核" +
                 `已尝试的浏览器：${attempts.join("；")}`,
@@ -236,7 +234,7 @@ export function createBrowserLoginRunner(options: BrowserLoginRunnerOptions): Br
                 page = context.pages()[0] ?? (await context.newPage());
                 await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: openTimeoutMs });
             } catch (error) {
-                // 开窗失败也要把浏览器收掉，否则会留一个没人管的窗口
+                // 启动失败时关闭浏览器
                 live = null;
                 await context.close().catch(() => undefined);
                 const first = describeError(error).split("\n")[0] ?? "";

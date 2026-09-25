@@ -52,27 +52,24 @@ export interface AuthService {
     updateAccount(id: string, patch: AccountUpdateInput): Promise<AccountSummary>;
     removeAccount(id: string): Promise<boolean>;
     activateAccount(id: string): Promise<AuthStatus>;
-    /**
-     * 开一个真实浏览器窗口让用户登录。
-     * 窗口开在用户自己的桌面上，服务端只能等，所以立刻返回，进度看 status().browserLogin
-     */
+    // 打开浏览器窗口，进度看 status().browserLogin
     startBrowserLogin(input: BrowserLoginInput): AuthStatus;
-    /** 取消正在进行的浏览器登录；没有会话时是空操作 */
+    // 取消浏览器登录
     cancelBrowserLogin(): AuthStatus;
     onChange(listener: (status: AuthStatus) => void): () => void;
 }
 
 export interface AuthServiceOptions {
     readonly logger?: (level: "info" | "warn", message: string) => void;
-    /** 浏览器登录的执行者；不传则这条功能在界面上会说明不可用 */
+    // 浏览器登录执行者
     readonly browserLogin?: BrowserLoginRunner;
-    /** 等用户在浏览器窗口里登录的时长 */
+    // 等待登录时长
     readonly browserLoginTimeoutMs?: number;
 }
 
 const EX_ACCESS_META_KEY = "ex_accessible";
 
-/** 等用户登录的默认时长。够慢吞吞地输密码、过挑战；也够早一点把窗口收掉 */
+// 默认等待登录时长
 const DEFAULT_BROWSER_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function createAuthService(
@@ -82,7 +79,7 @@ export function createAuthService(
     const log = options.logger ?? (() => undefined);
     const listeners = new Set<(status: AuthStatus) => void>();
 
-    /** 浏览器登录的会话状态。只有一个会话，与「同一时刻只开一个窗口」对应 */
+    // 浏览器登录会话状态
     let browserState: BrowserLoginState = { phase: "idle", message: "", startedAt: null };
     let browserAbort: AbortController | null = null;
 
@@ -204,10 +201,7 @@ export function createAuthService(
         };
     }
 
-    /**
-     * 落一个账号：只要求两份凭据 cookie，igneous 由服务端自己补。
-     * 导入 Cookie 与 浏览器登录 都走这里
-     */
+    // 落一个账号，导入 Cookie 与浏览器登录共用
     async function importAccount(input: AccountCredentialsInput): Promise<AccountSummary> {
         if (!hasLoginCookies(input.cookies)) {
             throw new Error("Cookie 不完整：ipb_member_id 与 ipb_pass_hash 必填");
@@ -225,25 +219,23 @@ export function createAuthService(
                     ? {}
                     : { ipbSessionId: input.cookies.ipbSessionId }),
             },
-            // 导入时常常只带两份凭据 cookie，此时时间戳留空：取到 igneous 才写，
-            // 否则界面会把「没有 igneous」显示成「已 0 天」
+            // 没有带 igneous 时时间戳留空
             igneousUpdatedAt: isIgneousValue(input.cookies.igneous) ? now : null,
             ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
         };
 
-        // 当前账号不存在、或它已经没有可用凭据（清除过登录态）时，导入的这份直接顶上
+        // 没有当前账号时顶上
         const current = activeAccount(ctx.auth.get());
         const makeActive = current === null || !hasLoginCookies(current.cookies);
 
-        // 先落库：igneous 要回上游取，网络不通时可能一直等到超时，那两份凭据不该因此丢掉。
-        // 写入经 SSE 立刻把账号推到界面，补 igneous 只是第二次写
+        // 先落库，再补 igneous
         await persistAccount(account, makeActive);
 
         const completed = await withIgneous(account);
         if (completed.cookies.igneous !== account.cookies.igneous) {
             await persistAccount(completed, makeActive);
         }
-        // 里站探测只是可选信息，不占这次导入的响应时间：结果到了会经 SSE 推给界面
+        // 里站探测不占响应时间
         if (makeActive) {
             void probe();
         }
@@ -251,7 +243,7 @@ export function createAuthService(
         return summarize(ctx.auth.get(), completed);
     }
 
-    /** 开窗 -> 等凭据 -> 导入 -> 关窗 */
+    // 开窗 -> 等凭据 -> 导入 -> 关窗
     async function runBrowserLogin(
         runner: BrowserLoginRunner,
         controller: AbortController,
@@ -438,12 +430,12 @@ export function createAuthService(
                 throw new Error(available.reason);
             }
 
-            // 立刻返回：窗口开着的时候服务端只能等，把这个等待放进 HTTP 请求里不合适
+            // 立刻返回
             setBrowserState("launching", "正在打开浏览器窗口…");
             const controller = new AbortController();
             browserAbort = controller;
             void runBrowserLogin(runner, controller, input).catch((error: unknown) => {
-                // runBrowserLogin 自己会把结果写进状态；这里只兜住意料之外的异常
+                // 兜住意外异常
                 setBrowserState("failed", describeError(error));
                 log("warn", `浏览器登录异常：${describeError(error)}`);
             });

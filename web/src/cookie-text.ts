@@ -1,4 +1,3 @@
-
 const KNOWN: Readonly<Record<string, keyof PastedCookies>> = {
     ipb_member_id: "ipbMemberId",
     ipb_pass_hash: "ipbPassHash",
