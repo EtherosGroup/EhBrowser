@@ -30,7 +30,7 @@ constexpr int kMinNodeMinor = 18;
 constexpr DWORD kWin10Build = 10240;
 constexpr DWORD kWin11Build = 22000;
 
-constexpr const char* kInstallerVersion = "1.1.0";
+constexpr const char* kInstallerVersion = "1.2.0";
 constexpr const wchar_t* kNpmPackage = L"ehbrowser@latest";
 constexpr const wchar_t* kNodeDownloadPage = L"https://nodejs.org/";
 
