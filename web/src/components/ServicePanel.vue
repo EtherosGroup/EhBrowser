@@ -57,52 +57,60 @@ onMounted(() => {
 
 <template>
     <section class="box">
-        <h2>服务</h2>
-        <dl v-if="health">
-            <dt>状态</dt>
-            <dd>{{ health.status }}</dd>
-            <dt>版本</dt>
-            <dd>{{ health.version }}</dd>
-            <dt>Node</dt>
-            <dd>{{ health.nodeVersion }}</dd>
-            <dt>平台</dt>
-            <dd>{{ health.platform }}</dd>
-            <dt>已运行</dt>
-            <dd>{{ health.uptimeSeconds }} 秒</dd>
-        </dl>
+        <div class="card">
+            <h2>服务</h2>
+            <dl v-if="health">
+                <dt>状态</dt>
+                <dd>{{ health.status }}</dd>
+                <dt>版本</dt>
+                <dd>{{ health.version }}</dd>
+                <dt>Node</dt>
+                <dd>{{ health.nodeVersion }}</dd>
+                <dt>平台</dt>
+                <dd>{{ health.platform }}</dd>
+                <dt>已运行</dt>
+                <dd>{{ health.uptimeSeconds }} 秒</dd>
+            </dl>
+        </div>
 
-        <h2>数据目录</h2>
-        <dl v-if="paths">
-            <dt>config</dt>
-            <dd>
-                {{ paths.configDir }} <span class="muted">({{ paths.sources.configDir }})</span>
-            </dd>
-            <dt>data</dt>
-            <dd>
-                {{ paths.dataDir }} <span class="muted">({{ paths.sources.dataDir }})</span>
-            </dd>
-            <dt>cache</dt>
-            <dd>
-                {{ paths.cacheDir }} <span class="muted">({{ paths.sources.cacheDir }})</span>
-            </dd>
-        </dl>
+        <div class="card">
+            <h2>数据目录</h2>
+            <dl v-if="paths">
+                <dt>config</dt>
+                <dd>
+                    {{ paths.configDir }} <span class="muted">({{ paths.sources.configDir }})</span>
+                </dd>
+                <dt>data</dt>
+                <dd>
+                    {{ paths.dataDir }} <span class="muted">({{ paths.sources.dataDir }})</span>
+                </dd>
+                <dt>cache</dt>
+                <dd>
+                    {{ paths.cacheDir }} <span class="muted">({{ paths.sources.cacheDir }})</span>
+                </dd>
+            </dl>
+        </div>
 
-        <h2>日志</h2>
-        <dl>
-            <dt>目录</dt>
-            <dd>{{ logDirectory === "" ? "读取中…" : logDirectory }}</dd>
-            <dt>文件</dt>
-            <dd>{{ logFileName === "" ? "读取中…" : logFileName }}</dd>
-            <dt>写入</dt>
-            <dd>
-                {{ logEnabled ? "已开启（按天一个文件）" : "已关闭，只在控制台与这里显示" }}
-                <span class="muted">· 可在设置 &gt; 日志里改目录</span>
-            </dd>
-        </dl>
-        <pre class="logs">{{ logText }}</pre>
+        <div class="card">
+            <h2>日志</h2>
+            <dl>
+                <dt>目录</dt>
+                <dd>{{ logDirectory === "" ? "读取中…" : logDirectory }}</dd>
+                <dt>文件</dt>
+                <dd>{{ logFileName === "" ? "读取中…" : logFileName }}</dd>
+                <dt>写入</dt>
+                <dd>
+                    {{ logEnabled ? "已开启（按天一个文件）" : "已关闭，只在控制台与这里显示" }}
+                    <span class="muted">· 可在设置 &gt; 日志里改目录</span>
+                </dd>
+            </dl>
+            <pre class="logs">{{ logText }}</pre>
+        </div>
 
-        <h2>事件流</h2>
-        <pre>{{ events.length === 0 ? "（暂无）" : events.join("\n") }}</pre>
+        <div class="card">
+            <h2>事件流</h2>
+            <pre>{{ events.length === 0 ? "（暂无）" : events.join("\n") }}</pre>
+        </div>
 
         <div class="actions">
             <button @click="load">重新读取</button>
@@ -122,21 +130,26 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
+/* 页面：各区域各成一块 */
 .box {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.card {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 6px;
-    padding: 16px;
+    padding: 14px 16px;
 }
 
 h2 {
-    margin: 0 0 8px;
+    margin: 0 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
     font-size: var(--font-size-base);
     color: var(--accent);
-}
-
-h2:not(:first-child) {
-    margin-top: 20px;
 }
 
 dl {
@@ -180,7 +193,6 @@ pre.logs {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 16px;
 }
 
 .actions .danger:hover:not(:disabled) {

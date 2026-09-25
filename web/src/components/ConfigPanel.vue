@@ -817,25 +817,23 @@ onMounted(async () => {
     width: 90px;
 }
 
+/* 页面：各区域各成一块 */
 .box {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .module {
-    border-bottom: 1px solid var(--line);
-
-    &:last-of-type {
-        border-bottom: none;
-    }
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
 
     > summary {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 10px 0;
+        padding: 12px 16px;
         cursor: pointer;
         list-style: none;
 
@@ -855,19 +853,27 @@ onMounted(async () => {
     }
 
     &[open] {
+        > summary {
+            border-bottom: 1px solid var(--line);
+        }
+
         > summary::before {
             transform: rotate(90deg);
         }
 
-        > .grid:last-child {
+        > :last-child {
             padding-bottom: 12px;
         }
     }
 
+    /* 内容与标题文字左对齐 */
     > .grid,
+    > .rows,
+    > .row,
     > h3,
     > p {
-        margin-left: 20px;
+        margin-left: 36px;
+        margin-right: 16px;
     }
 }
 
