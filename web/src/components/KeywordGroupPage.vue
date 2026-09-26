@@ -45,8 +45,8 @@ const drafts = ref<Record<string, Draft>>({});
 /** 正在给哪个组做标签建议 */
 const suggestFor = ref("");
 
-/** 输入框里正在写的那一段，和搜索页同一条规则 */
-const TOKEN_TAIL = /[^\s,]*$/;
+/** 输入框里正在写的那一段，和搜索页同一条规则：按空格分段 */
+const TOKEN_TAIL = /[^\s]*$/;
 
 /** 按正在写的那一段查词库。作者类型先收窄到 artist 命名空间，否则 12 条名额会被别的占满 */
 function suggestionsFor(id: string): readonly TagSuggestion[] {
@@ -344,6 +344,7 @@ onMounted(() => {
                         添加
                     </button>
                 </div>
+                <p class="muted hint">支持多个关键词，用空格分割</p>
             </li>
         </ul>
 
@@ -539,6 +540,11 @@ onMounted(() => {
 
 .suggest button:hover {
     background: var(--panel);
+}
+
+.hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
 }
 
 .drop {

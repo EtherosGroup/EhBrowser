@@ -51,11 +51,10 @@ const searchedKey = ref("");
 const input = ref<HTMLInputElement | null>(null);
 
 /**
- * 正在输入的那一段：最后一个空格或逗号之后的部分。
- * 空格与逗号都是标签之间的分隔，所以敲下逗号就等于「开始写下一个标签」，
- * 建议区随之换到下一段——这就是逗号触发下一次关联搜索的做法。
+ * 正在输入的那一段：最后一个空格之后的部分。
+ * 空格是标签之间的分隔，敲下空格就等于「开始写下一个标签」，建议区随之换到下一段
  */
-const TOKEN_TAIL = /[^\s,]*$/;
+const TOKEN_TAIL = /[^\s]*$/;
 
 /** 输入框里正在写的这一段标签 */
 const typingToken = computed(() => query.value.slice(query.value.search(TOKEN_TAIL)));
@@ -209,7 +208,7 @@ function readQuery(): number {
 
 /** 当前输入框里的条件换算成检索参数。page 与 limit 每次都写明，与缓存的比对才能对上 */
 function currentQuery(target: number): GallerySearchQuery {
-    // 输入框里允许用逗号分隔标签，送上游前统一整成空格（见 normalizeQuery）
+    // 送上游前收敛分隔符（见 normalizeQuery）
     const trimmed = normalizeQuery(query.value);
     return {
         ...(trimmed === "" ? {} : { query: trimmed }),
@@ -271,7 +270,7 @@ async function run(target = 1): Promise<void> {
     // 浮层先收起来：新结果马上铺出来，别让它盖在上面
     panelDismissed.value = true;
     const asked = currentQuery(target);
-    // 记进历史：记用户自己敲的那一行（保留逗号写法），语种与分类是筛选项，不重复记
+    // 记进历史：记用户自己敲的那一行，语种与分类是筛选项，不重复记
     const typed = query.value.trim();
     if (asked.query !== undefined && typed !== "") {
         rememberSearch(typed);
@@ -421,7 +420,7 @@ onMounted(() => {
             -->
             <p class="muted hint">
                 标签写成 namespace:tag；多词标签加引号，尾部 $ 表示精确匹配该标签；
-                多个标签用空格或逗号分开（逗号只是为了好接着往下写，搜索时按空格处理）。
+                支持多个关键词，用空格分割。
                 详情页选中标签后会自动填成这种写法
             </p>
 
