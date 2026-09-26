@@ -14,11 +14,19 @@ import {
     type GalleryImagePage,
     type GalleryRelation,
     type GallerySummary,
+    type KeywordGroup,
+    type KeywordGroupEntry,
 } from "../../../src/api/index.ts";
 import { describeApiError, isAbortError, libraryImageUrl, request } from "../api.ts";
 import { messenger } from "../messenger.ts";
 import { addFavorite, loadFavorites } from "../favorites.ts";
 import { addToUserPlaylist } from "../playlist.ts";
+import {
+    addKeywordEntries,
+    createKeywordGroup,
+    keywordGroups,
+    loadKeywordGroups,
+} from "../keyword-groups.ts";
 import { tagQuery, TAG_TERM_LIMIT } from "../tag-search.ts";
 import { categoryLabel, namespaceLabel, tagName } from "../translation.ts";
 import Dialog from "./Dialog.vue";
@@ -62,6 +70,10 @@ const searchQuery = computed(() => tagQuery(selectedTags.value));
 /** 上游只接受 8 个词条，超出时给出提示 */
 const tooManyTags = computed(() => selectedTags.value.length > TAG_TERM_LIMIT);
 
+/** 「添加到/新建关键词组」弹窗与新建组名 */
+const askSaveTags = ref(false);
+const newGroupTitle = ref("");
+
 const upstreamUrl = computed(() => `https://e-hentai.net/g/${props.gid}/${props.token}/`);
 const shownPreviews = computed(() => (detail.value?.previewPages ?? []).slice(0, PREVIEW_LIMIT));
 /** 封面地址：本地有副本就读本地文件（零上游请求），否则用上游图片页给的地址 */
@@ -91,6 +103,49 @@ function toggleTag(tag: string): void {
 /** 带着关键词回到搜索页：搜索框填好，搜索由搜索页发起 */
 function toSearchPage(key: string): void {
     void router.push({ path: "/", query: { query: key } });
+}
+
+/** 选中的标签 -> 关键词组词条 */
+function selectedEntries(): KeywordGroupEntry[] {
+    return selectedTags.value.map((tag) => ({ kind: "tag" as const, value: tag }));
+}
+
+/** 打开「添加到/新建关键词组」；每次都重新拉一份组列表 */
+async function openSaveTags(): Promise<void> {
+    try {
+        await loadKeywordGroups();
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+        return;
+    }
+    newGroupTitle.value = "";
+    askSaveTags.value = true;
+}
+
+/** 把选中的标签追加进已有组 */
+async function saveToGroup(group: KeywordGroup): Promise<void> {
+    try {
+        await addKeywordEntries(group.id, selectedEntries());
+        askSaveTags.value = false;
+        messenger.success(`已加入「${group.title}」`);
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+    }
+}
+
+/** 新建一个组并放入选中的标签 */
+async function saveAsNewGroup(): Promise<void> {
+    const title = newGroupTitle.value.trim();
+    if (title === "") {
+        return;
+    }
+    try {
+        await createKeywordGroup(title, selectedEntries());
+        askSaveTags.value = false;
+        messenger.success(`已新建「${title}」`);
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+    }
 }
 
 /**
@@ -546,14 +601,39 @@ onUnmounted(() => {
 
         <!-- 选中标签后出现的搜索入口 -->
         <Transition name="tag-search">
-            <button v-if="selectedTags.length > 0" class="tag-search" @click="searchSelectedTags">
-                <span class="line">搜索选中的 {{ selectedTags.length }} 个标签</span>
-                <span class="preview-of-selection">{{ searchQuery }}</span>
-                <span v-if="tooManyTags" class="warn">
-                    上游一次最多 {{ TAG_TERM_LIMIT }} 个词条，超出的会被忽略
-                </span>
-            </button>
+            <div v-if="selectedTags.length > 0" class="tag-search">
+                <button class="search-selected" @click="searchSelectedTags">
+                    <span class="line">搜索选中的 {{ selectedTags.length }} 个标签</span>
+                    <span class="preview-of-selection">{{ searchQuery }}</span>
+                    <span v-if="tooManyTags" class="warn">
+                        上游一次最多 {{ TAG_TERM_LIMIT }} 个词条，超出的会被忽略
+                    </span>
+                </button>
+                <button class="save-selected" @click="openSaveTags">添加到/新建关键词组</button>
+            </div>
         </Transition>
+
+        <Dialog v-model="askSaveTags" title="添加到/新建关键词组" width="520px">
+            <p class="muted">把选中的 {{ selectedTags.length }} 个标签存进关键词组。</p>
+            <div class="new-group">
+                <input v-model="newGroupTitle" placeholder="新组名" @keyup.enter="saveAsNewGroup" />
+                <button :disabled="newGroupTitle.trim() === ''" @click="saveAsNewGroup">
+                    新建并加入
+                </button>
+            </div>
+            <p v-if="keywordGroups.length > 0" class="muted">或加入到已有组：</p>
+            <ul v-if="keywordGroups.length > 0" class="picker">
+                <li v-for="group in keywordGroups" :key="group.id">
+                    <button class="pick" @click="saveToGroup(group)">
+                        <span class="pick-name">{{ group.title }}</span>
+                        <span class="muted">{{ group.entries.length }} 条</span>
+                    </button>
+                </li>
+            </ul>
+            <template #buttons>
+                <button @click="askSaveTags = false">取消</button>
+            </template>
+        </Dialog>
     </div>
 </template>
 
@@ -713,14 +793,25 @@ onUnmounted(() => {
     z-index: var(--z-floating);
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
+    align-items: stretch;
+    gap: 8px;
     max-width: 320px;
     padding: 10px 14px;
-    text-align: right;
     background: var(--panel);
     border: 1px solid var(--accent);
     box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+/* 整块可点的主按钮 */
+.search-selected {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 0;
+    text-align: right;
+    background: none;
+    border: none;
 }
 
 .tag-search .line {
@@ -739,6 +830,49 @@ onUnmounted(() => {
     color: var(--danger);
     font-size: var(--font-size-sm);
     white-space: normal;
+}
+
+.save-selected {
+    align-self: flex-end;
+    padding: 2px 8px;
+    font-size: var(--font-size-sm);
+}
+
+/* 关键词组选择弹窗 */
+.new-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.new-group input {
+    flex: 1;
+    min-width: 0;
+}
+
+.picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 40vh;
+    overflow: auto;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pick {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.pick-name {
+    color: var(--accent);
 }
 
 .tag-search-enter-active,

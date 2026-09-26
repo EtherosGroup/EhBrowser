@@ -33,6 +33,11 @@ import type {
     GalleryTokenResult,
     ImportConfigInput,
     ImportConfigResult,
+    KeywordGroup,
+    KeywordGroupAddEntriesInput,
+    KeywordGroupCreateInput,
+    KeywordGroupRemoveManyInput,
+    KeywordGroupUpdateInput,
     LocalGallery,
     LocalGalleryLocator,
     LocalImageLocator,
@@ -298,6 +303,31 @@ export interface ApiRouteContract {
     };
     "playlist.remove": { params: PlaylistKeyParam; response: ApiResponse<PlaylistSnapshot> };
     "playlist.clear": { response: ApiResponse<PlaylistSnapshot> };
+
+    // ── 关键词组 ───────────────────────────────────────────
+    "keywords.list": { response: ApiResponse<readonly KeywordGroup[]> };
+    "keywords.create": {
+        body: KeywordGroupCreateInput;
+        response: ApiResponse<readonly KeywordGroup[]>;
+    };
+    "keywords.update": {
+        params: { groupId: string };
+        body: KeywordGroupUpdateInput;
+        response: ApiResponse<readonly KeywordGroup[]>;
+    };
+    "keywords.addEntries": {
+        params: { groupId: string };
+        body: KeywordGroupAddEntriesInput;
+        response: ApiResponse<readonly KeywordGroup[]>;
+    };
+    "keywords.remove": {
+        params: { groupId: string };
+        response: ApiResponse<readonly KeywordGroup[]>;
+    };
+    "keywords.removeMany": {
+        body: KeywordGroupRemoveManyInput;
+        response: ApiResponse<readonly KeywordGroup[]>;
+    };
 
     // ── 下载 ───────────────────────────────────────────────
     "downloads.list": { response: ApiResponse<readonly DownloadTask[]> };

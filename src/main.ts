@@ -20,6 +20,7 @@ import { createDetailStore } from "./services/detail-store.ts";
 import { createGalleryService } from "./services/gallery-service.ts";
 import { createLocalLibrary } from "./services/local-library.ts";
 import { createPlaylistService } from "./services/playlist-service.ts";
+import { createKeywordGroupService } from "./services/keyword-group-service.ts";
 import { createLogService, defaultLogDirectory } from "./services/log-service.ts";
 import { createTranslateService } from "./services/translate-service.ts";
 import { createStorageService } from "./services/storage-service.ts";
@@ -169,6 +170,8 @@ async function main(): Promise<void> {
 
     // 用户播放列表：持久化在 SQLite，重启不丢
     const playlist = createPlaylistService(ctx);
+    // 关键词组：搜索页整组灌进搜索框，详情页把选中的标签存进组
+    const keywords = createKeywordGroupService(ctx);
     // 收藏：本地收藏夹落库，云端槽位同步到上游
     const favorites = createFavoriteService(ctx, gallery, {
         logger: logs.logger("favorite"),
@@ -195,6 +198,7 @@ async function main(): Promise<void> {
         library,
         storage,
         playlist,
+        keywords,
         updates,
         favorites,
         translate,

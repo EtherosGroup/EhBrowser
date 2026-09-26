@@ -11,10 +11,13 @@ import {
     type GallerySearchCache,
     type GallerySearchQuery,
     type GallerySummary,
+    type KeywordGroup,
 } from "../../../src/api/index.ts";
 import GalleryGrid from "./GalleryGrid.vue";
+import Dialog from "./Dialog.vue";
 import { searchGroupTitle, type GalleryGroup } from "../gallery-groups.ts";
-import { normalizeQuery } from "../tag-search.ts";
+import { normalizeQuery, groupQuery, mergeQuery } from "../tag-search.ts";
+import { keywordGroups, loadKeywordGroups } from "../keyword-groups.ts";
 import { GRID_COLUMN_CHOICES, columnsLabel, gridColumns } from "../ui-prefs.ts";
 import { describeApiError, request } from "../api.ts";
 import { messenger } from "../messenger.ts";
@@ -38,6 +41,8 @@ const minRating = ref<number | null>(null);
 const selected = ref<GalleryCategory[]>([]);
 const items = ref<GallerySummary[]>([]);
 const page = ref(1);
+/** 关键词组选择弹窗 */
+const askGroups = ref(false);
 const hasNext = ref(false);
 const busy = ref(false);
 /** 当前这批结果对应的关键词。标题按它生成，不受输入框中正在输入的内容影响 */
@@ -244,6 +249,23 @@ function applyCache(entry: GallerySearchCache): void {
     syncQuery(entry.result.page);
 }
 
+/** 打开关键词组选择窗；每次都重新拉一份，别处刚改的组也能看到 */
+async function openGroups(): Promise<void> {
+    try {
+        await loadKeywordGroups();
+    } catch (caught) {
+        messenger.error(describeApiError(caught));
+        return;
+    }
+    askGroups.value = true;
+}
+
+/** 整组并进搜索框 */
+function insertGroup(group: KeywordGroup): void {
+    query.value = mergeQuery(query.value, groupQuery(group));
+    askGroups.value = false;
+}
+
 async function run(target = 1): Promise<void> {
     busy.value = true;
     // 浮层先收起来：新结果马上铺出来，别让它盖在上面
@@ -316,16 +338,27 @@ onMounted(() => {
             <div class="row">
                 <div class="grow">
                     <label for="q">关键词</label>
-                    <input
-                        id="q"
-                        ref="input"
-                        v-model="query"
-                        placeholder="留空表示不限定"
-                        @click="panelDismissed = false"
-                        @focus="inputFocused = true"
-                        @blur="inputFocused = false"
-                        @keyup.enter="run(1)"
-                    />
+                    <div class="with-groups">
+                        <input
+                            id="q"
+                            ref="input"
+                            v-model="query"
+                            placeholder="留空表示不限定"
+                            @click="panelDismissed = false"
+                            @focus="inputFocused = true"
+                            @blur="inputFocused = false"
+                            @keyup.enter="run(1)"
+                        />
+                        <button
+                            type="button"
+                            class="groups"
+                            title="从关键词组插入"
+                            aria-label="从关键词组插入"
+                            @click="openGroups"
+                        >
+                            +
+                        </button>
+                    </div>
                 </div>
                 <div>
                     <label for="lang">语言</label>
@@ -462,6 +495,26 @@ onMounted(() => {
             <span class="muted">第 {{ page }} 页</span>
             <button :disabled="busy || !hasNext" @click="run(page + 1)">下一页</button>
         </footer>
+
+        <Dialog v-model="askGroups" title="从关键词组插入" width="560px">
+            <p v-if="keywordGroups.length === 0" class="muted">
+                还没有关键词组。到「关键词组」页新建一个，把常用的标签、画师或自定义检索片段存进去。
+            </p>
+            <ul v-else class="picker">
+                <li v-for="group in keywordGroups" :key="group.id">
+                    <button class="pick" @click="insertGroup(group)">
+                        <span class="pick-head">
+                            <span class="pick-name">{{ group.title }}</span>
+                            <span class="muted">{{ group.entries.length }} 条</span>
+                        </span>
+                        <span class="pick-preview muted">{{ groupQuery(group) }}</span>
+                    </button>
+                </li>
+            </ul>
+            <template #buttons>
+                <button @click="askGroups = false">取消</button>
+            </template>
+        </Dialog>
     </div>
 </template>
 
@@ -483,6 +536,63 @@ onMounted(() => {
 
 .grow {
     flex: 1;
+}
+
+/* 关键词输入 + 关键词组入口 */
+.with-groups {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.with-groups input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 与旁边输入框同高：输入框是固定高度的，按钮默认只有内边距撑高，会显得扁 */
+.with-groups .groups {
+    flex: none;
+    height: var(--control-height);
+    padding: 0 12px;
+    font-size: var(--font-size-lg);
+}
+
+.picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-height: 52vh;
+    overflow: auto;
+}
+
+.pick {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.pick-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.pick-name {
+    color: var(--accent);
+}
+
+.pick-preview {
+    font-size: var(--font-size-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* 搜索按钮：图标 + 文字，图标跟随按钮颜色与字号 */

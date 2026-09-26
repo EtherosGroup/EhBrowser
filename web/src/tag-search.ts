@@ -10,8 +10,53 @@
  * 因此每个选中的标签都写成 `namespace:"多词标签"$`，只匹配这一个标签
  */
 
+import type { KeywordGroup, KeywordGroupEntry } from "../../src/api/index.ts";
+
 /** 上游一次最多识别这么多词条，超出的词条会被忽略（官方搜索规则） */
 export const TAG_TERM_LIMIT = 8;
+
+/** 关键词组的词条 -> 搜索框里的一段文本 */
+export function entryTerm(entry: KeywordGroupEntry): string {
+    const value = entry.value.trim();
+    if (value === "") {
+        return "";
+    }
+    if (entry.kind === "custom") {
+        return value;
+    }
+    if (entry.kind === "author") {
+        // 作者名不带命名空间，插入时按 artist 标签走；已经写了命名空间的照原样
+        return tagTerm(value.includes(":") ? value : `artist:${value}`);
+    }
+    return tagTerm(value);
+}
+
+/** 词条去重键，界面里比较用 */
+export function entryKey(entry: KeywordGroupEntry): string {
+    return `${entry.kind}:${entry.value}`;
+}
+
+/** 整个关键词组 -> 搜索框里的一行 */
+export function groupQuery(group: KeywordGroup): string {
+    return group.entries
+        .map(entryTerm)
+        .filter((term) => term !== "")
+        .join(" ");
+}
+
+/** 把一段词条并进搜索框已有内容，重复的词条不重复插入 */
+export function mergeQuery(current: string, addition: string): string {
+    const existing = current.trim() === "" ? [] : current.trim().split(/\s+/);
+    const seen = new Set(existing);
+    const added = addition
+        .split(/\s+/)
+        .filter((term) => term !== "" && !seen.has(term))
+        .filter((term) => {
+            seen.add(term);
+            return true;
+        });
+    return [...existing, ...added].join(" ");
+}
 
 /** 单个标签 -> 一个词条。空标签返回空串，由调用方过滤 */
 export function tagTerm(tag: string): string {

@@ -50,6 +50,7 @@ import type { GalleryService } from "./services/gallery-service.ts";
 import type { LocalLibrary } from "./services/local-library.ts";
 import type { StorageService } from "./services/storage-service.ts";
 import type { PlaylistService } from "./services/playlist-service.ts";
+import type { KeywordGroupService } from "./services/keyword-group-service.ts";
 import type { FavoriteService } from "./services/favorite-service.ts";
 import type { LogService } from "./services/log-service.ts";
 import type { TranslateService } from "./services/translate-service.ts";
@@ -78,6 +79,8 @@ export interface ServerOptions {
     readonly storage?: StorageService;
     /** 缺省时播放列表路由返回 501 */
     readonly playlist?: PlaylistService;
+    /** 缺省时关键词组路由返回 501 */
+    readonly keywords?: KeywordGroupService;
     /** 缺省时更新检查路由返回空状态 */
     readonly updates?: UpdateService;
     /** 缺省时收藏路由返回 501 */
@@ -225,6 +228,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         if (matched.name.startsWith("playlist.")) {
             await handlePlaylist(request, response, matched, options.playlist);
+            return;
+        }
+
+        if (matched.name.startsWith("keywords.")) {
+            await handleKeywordGroups(request, response, matched, options.keywords);
             return;
         }
 
@@ -1116,6 +1124,113 @@ async function handlePlaylist(
             }
             case "playlist.clear": {
                 sendJson(response, 200, ok(playlist.clear()));
+                return;
+            }
+            default: {
+                sendError(response, "not_implemented", `路由尚未实现：${matched.name}`);
+            }
+        }
+    } catch (error) {
+        sendError(response, "internal", describeError(error));
+    }
+}
+
+/**
+ * 关键词组路由。每个写操作都返回整份列表，界面直接替换本地状态
+ */
+async function handleKeywordGroups(
+    request: IncomingMessage,
+    response: ServerResponse,
+    matched: MatchedRoute,
+    keywords: KeywordGroupService | undefined,
+): Promise<void> {
+    if (keywords === undefined) {
+        sendError(response, "not_implemented", "关键词组未接入");
+        return;
+    }
+
+    const groupId = decodeURIComponent(matched.params["groupId"] ?? "");
+    try {
+        /** 读请求体；解析失败时已经回过响应，返回 undefined */
+        const readBody = async (): Promise<unknown | undefined> => {
+            try {
+                return await readJsonBody(request);
+            } catch (error) {
+                sendError(response, "bad_request", describeError(error));
+                return undefined;
+            }
+        };
+
+        switch (matched.name) {
+            case "keywords.list": {
+                sendJson(response, 200, ok(keywords.list()));
+                return;
+            }
+            case "keywords.create": {
+                const body = await readBody();
+                if (body === undefined) {
+                    return;
+                }
+                sendJson(
+                    response,
+                    200,
+                    ok(keywords.create(body as Parameters<KeywordGroupService["create"]>[0])),
+                );
+                return;
+            }
+            case "keywords.update": {
+                const body = await readBody();
+                if (body === undefined) {
+                    return;
+                }
+                sendJson(
+                    response,
+                    200,
+                    ok(
+                        keywords.update(
+                            groupId,
+                            body as Parameters<KeywordGroupService["update"]>[1],
+                        ),
+                    ),
+                );
+                return;
+            }
+            case "keywords.addEntries": {
+                const body = await readBody();
+                if (body === undefined) {
+                    return;
+                }
+                sendJson(
+                    response,
+                    200,
+                    ok(
+                        keywords.addEntries(
+                            groupId,
+                            body as Parameters<KeywordGroupService["addEntries"]>[1],
+                        ),
+                    ),
+                );
+                return;
+            }
+            case "keywords.remove": {
+                sendJson(response, 200, ok(keywords.remove(groupId)));
+                return;
+            }
+            case "keywords.removeMany": {
+                const body = await readBody();
+                if (body === undefined) {
+                    return;
+                }
+                const ids = (body as { ids?: unknown }).ids;
+                if (!Array.isArray(ids)) {
+                    sendError(response, "bad_request", "ids 必须是数组");
+                    return;
+                }
+                sendJson(
+                    response,
+                    200,
+                    ok(keywords.removeMany(ids.map((id) => String(id)))),
+                );
                 return;
             }
             default: {

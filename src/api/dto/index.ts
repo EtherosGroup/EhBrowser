@@ -80,6 +80,16 @@ export type {
 } from "./favorite.ts";
 
 export type {
+    KeywordEntryKind,
+    KeywordGroup,
+    KeywordGroupAddEntriesInput,
+    KeywordGroupCreateInput,
+    KeywordGroupEntry,
+    KeywordGroupRemoveManyInput,
+    KeywordGroupUpdateInput,
+} from "./keyword-group.ts";
+
+export type {
     LocalGallery,
     UpdateEntry,
     UpdateTarget,

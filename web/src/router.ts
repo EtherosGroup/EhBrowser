@@ -14,6 +14,7 @@ import GalleryPreviewsPage from "./components/GalleryPreviewsPage.vue";
 import PlayerPage from "./components/PlayerPage.vue";
 import FavoritesPage from "./components/FavoritesPage.vue";
 import PlaylistPage from "./components/PlaylistPage.vue";
+import KeywordGroupPage from "./components/KeywordGroupPage.vue";
 import ConfigPanel from "./components/ConfigPanel.vue";
 import DebugPage from "./components/DebugPage.vue";
 import DownloadsPanel from "./components/DownloadsPanel.vue";
@@ -41,6 +42,7 @@ export const TABS: readonly TabRoute[] = [
     { path: "/library", label: "本地画廊", title: "本地画廊", component: GalleryLibraryPage },
     { path: "/favorites", label: "收藏", title: "收藏", component: FavoritesPage },
     { path: "/playlist", label: "播放列表", title: "播放列表", component: PlaylistPage },
+    { path: "/keywords", label: "关键词组", title: "关键词组", component: KeywordGroupPage },
     { path: "/downloads", label: "下载", title: "下载", component: DownloadsPanel },
     { path: "/service", label: "服务", title: "服务", component: ServicePanel },
 ];

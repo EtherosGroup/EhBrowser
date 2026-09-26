@@ -126,6 +126,19 @@ const MIGRATIONS: readonly string[] = [
     alter table downloads add column pages_done integer not null default 0;
     alter table downloads add column page_count integer;
     `,
+    // v5：关键词组。词条分 tag / author / custom，整体以 JSON 存一列
+    `
+    create table if not exists keyword_groups (
+        id text primary key,
+        title text not null default '',
+        entries_json text not null default '[]',
+        position integer not null default 0,
+        created_at integer not null,
+        updated_at integer not null
+    );
+
+    create index if not exists idx_keyword_groups_position on keyword_groups (position);
+    `,
 ];
 
 export function openDatabase(file: string): DbHandle {

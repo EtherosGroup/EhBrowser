@@ -498,6 +498,50 @@ export const ROUTES = {
         requiresAccount: false,
     },
 
+    // ── 关键词组 ───────────────────────────────────────────
+    "keywords.list": {
+        method: "GET",
+        path: "/api/keyword-groups",
+        description: "关键词组列表",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "keywords.create": {
+        method: "POST",
+        path: "/api/keyword-groups",
+        description: "新建关键词组",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "keywords.update": {
+        method: "PATCH",
+        path: "/api/keyword-groups/:groupId",
+        description: "改名或整份替换词条",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "keywords.addEntries": {
+        method: "POST",
+        path: "/api/keyword-groups/:groupId/entries",
+        description: "向组内追加词条，已存在的跳过",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "keywords.remove": {
+        method: "DELETE",
+        path: "/api/keyword-groups/:groupId",
+        description: "删除关键词组",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+    "keywords.removeMany": {
+        method: "POST",
+        path: "/api/keyword-groups/remove",
+        description: "批量删除关键词组",
+        requiresToken: true,
+        requiresAccount: false,
+    },
+
     // ── 下载 ───────────────────────────────────────────────
     "downloads.list": {
         method: "GET",
