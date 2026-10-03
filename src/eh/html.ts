@@ -163,6 +163,46 @@ export function parseSearchResults(html: string): Array<{ gid: number; token: st
     return out;
 }
 
+/**
+ * 列表页的翻页游标。
+ * 上游没有页码参数：`page=` 会被忽略，翻页靠 `next=<gid>`（结果在该 gid 之后）。
+ * 页面脚本里两个变量给的就是这两个地址：`var nexturl` / `var prevurl`，
+ * 分别对应「Next >」「Last >>」两个入口；没有下一页时 nexturl 是空串。
+ * 两个变量都缺失时（上游结构变了）退回同名锚点 href。
+ */
+export interface ParsedSearchNav {
+    /** 下一页游标；没有下一页时为 null */
+    readonly next: number | null;
+    /** 上一页游标；已在第一页时为 null */
+    readonly prev: number | null;
+}
+
+export function parseSearchNav(html: string): ParsedSearchNav {
+    return {
+        next: cursorFrom(cursorUrl(html, "nexturl", "unext"), "next"),
+        prev: cursorFrom(cursorUrl(html, "prevurl", "uprev"), "prev"),
+    };
+}
+
+/** 取翻页地址：优先页面脚本变量，变量不存在时取锚点 href */
+function cursorUrl(html: string, variable: string, anchorId: string): string {
+    const fromScript = new RegExp(`var ${variable}="([^"]*)"`).exec(html);
+    if (fromScript !== null) {
+        return fromScript[1] ?? "";
+    }
+    return new RegExp(`id="${anchorId}"[^>]*href="([^"]*)"`).exec(html)?.[1] ?? "";
+}
+
+/** 从翻页地址里取游标 gid */
+function cursorFrom(url: string, key: string): number | null {
+    const matched = new RegExp(`[?&]${key}=(\\d+)`).exec(url);
+    if (matched === null) {
+        return null;
+    }
+    const value = Number(matched[1]);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 /** 归档列表是 JSON：{ "archives": [...], "funds": "..." } 之类的结构 */
 export interface ParsedArchiveOption {
     readonly resolution: string;

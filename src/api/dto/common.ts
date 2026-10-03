@@ -13,7 +13,7 @@ export type EhSite = "e-hentai" | "exhentai";
 /** 服务端生成的标识，用于账号、下载任务等 */
 export type EntityId = string;
 
-/** 分页请求；page 从 1 开始，与上游 URL 一致 */
+/** 分页请求；page 从 1 开始 */
 export interface PageQuery {
     readonly page?: number;
     /** 服务端按上限裁剪 */

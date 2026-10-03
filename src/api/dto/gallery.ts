@@ -202,10 +202,16 @@ export interface ArchiveCatalog {
 
 /**
  * 一次检索取多少条。界面与启动预热都使用该值，缓存命中判定以此为准。
+ * 上游一页给 25 条，这里只展示 24 条：下一页的游标取展示过的最后一条，
+ * 因此翻页不重不漏（上游的 `page=` 不生效，翻页靠游标，见 gallery-service 的游标链）。
  */
 export const SEARCH_PAGE_LIMIT = 24;
 
-/** 搜索条件；GET 查询串由服务端解析为该结构 */
+/**
+ * 搜索条件；GET 查询串由服务端解析为该结构
+ * page 是结果序号（从 1 开始）：上游列表没有页码参数，服务端按 next 游标逐页走上去。
+ * limit 也参与游标链的比对——每页条数变了，游标对应的位置就变了
+ */
 export interface GallerySearchQuery extends PageQuery {
     readonly query?: string;
     readonly categories?: readonly GalleryCategory[];

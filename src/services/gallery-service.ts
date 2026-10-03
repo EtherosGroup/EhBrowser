@@ -34,6 +34,7 @@ import {
     isUsablePage,
     parseGalleryPage,
     parseImagePage,
+    parseSearchNav,
     parseSearchResults,
     searchUrl,
     torrentsUrl,
@@ -156,36 +157,140 @@ export function createGalleryService(
         });
     }
 
-    async function runSearch(query: GallerySearchQuery): Promise<GallerySearchResult> {
-        const page = query.page ?? 1;
-        const limit = query.limit ?? SEARCH_PAGE_SIZE;
+    /** 当前游标链对应的检索条件；条件（含每页条数）一变，链作废 */
+    let cursorChainKey: string | null = null;
+    /**
+     * 翻页游标链。上游列表没有页码参数，只能「从这一条之后继续取」，
+     * 因此第 N 页要靠前 N-1 页给出的游标走上去。cursors[i] 是第 i+1 页给出的下一页游标，
+     * null 表示那一页就是末页。
+     */
+    let cursors: (number | null)[] = [];
+    /**
+     * 检索串行。游标链是服务端的一份状态，两组检索并发时会互相踩游标
+     * （启动预热与界面自己发起的检索就可能同时在跑），因此整段检索排队进行。
+     */
+    let searching: Promise<unknown> = Promise.resolve();
+
+    function serializeSearch<T>(task: () => Promise<T>): Promise<T> {
+        const next = searching.then(task, task);
+        searching = next.then(
+            () => undefined,
+            () => undefined,
+        );
+        return next;
+    }
+
+    /** 游标只对同一组条件有效，比对时去掉页码 */
+    function cursorChainKeyOf(query: GallerySearchQuery): string {
+        return JSON.stringify([
+            query.query ?? "",
+            query.language ?? "",
+            query.minRating ?? 0,
+            [...(query.categories ?? [])].sort(),
+            [...(query.excludedCategories ?? [])].sort(),
+            query.limit ?? SEARCH_PAGE_SIZE,
+        ]);
+    }
+
+    interface SearchListing {
+        readonly pairs: ReadonlyArray<{ readonly gid: number; readonly token: string }>;
+        /** 上游给的下一页游标；没有下一页时为 null */
+        readonly next: number | null;
+    }
+
+    /** 拉一页搜索列表。cursor 为空表示第一页 */
+    async function fetchListing(
+        query: GallerySearchQuery,
+        cursor: number | undefined,
+    ): Promise<SearchListing> {
         const response = await callApi({
             url: searchUrl(currentSite(), {
-                ...query,
-                page: Math.max(0, page - 1),
+                ...(query.query === undefined ? {} : { query: query.query }),
+                ...(query.categories === undefined ? {} : { categories: query.categories }),
+                ...(query.excludedCategories === undefined
+                    ? {}
+                    : { excludedCategories: query.excludedCategories }),
+                ...(query.language === undefined ? {} : { language: query.language }),
+                ...(query.minRating === undefined ? {} : { minRating: query.minRating }),
+                ...(cursor === undefined ? {} : { next: cursor }),
             }),
             ...pageOptions(),
         });
         if (!isUsablePage(response.status)) {
             throw new Error(`搜索页返回 HTTP ${response.status}`);
         }
+        return {
+            pairs: parseSearchResults(response.text),
+            next: parseSearchNav(response.text).next,
+        };
+    }
 
-        const pairs = parseSearchResults(response.text).slice(0, limit);
-        if (pairs.length === 0) {
-            const empty: GallerySearchResult = { items: [], page, limit, hasNext: false };
+    /**
+     * 这一页之后继续往下用的游标：本页最后一条展示出来的 gid。
+     * 用展示的最后一条而不是上游声明的最后一条，因为上游一页给 25 条、这里只展示 limit 条，
+     * 这样下一页正好接在展示过的内容之后，不重不漏。上游说没有下一页时为 null。
+     */
+    function continuingCursor(listing: SearchListing, limit: number): number | null {
+        if (listing.next === null) {
+            return null;
+        }
+        const last = listing.pairs.slice(0, limit).at(-1);
+        return last === undefined ? listing.next : last.gid;
+    }
+
+    function runSearch(query: GallerySearchQuery): Promise<GallerySearchResult> {
+        // 串行执行，见 serializeSearch 的注释
+        return serializeSearch(() => searchOnce(query));
+    }
+
+    async function searchOnce(query: GallerySearchQuery): Promise<GallerySearchResult> {
+        const requested = Math.max(1, query.page ?? 1);
+        const limit = query.limit ?? SEARCH_PAGE_SIZE;
+
+        const key = cursorChainKeyOf(query);
+        if (key !== cursorChainKey) {
+            cursorChainKey = key;
+            cursors = [];
+        }
+
+        /*
+         * 补齐目标页之前的游标。顺着翻页时上一页的游标已经在链上，这里一次都不多取；
+         * 跳页（地址里带 page=、或换了条件）才逐页走下去。
+         */
+        while (cursors.length < requested - 1) {
+            const pageNo = cursors.length + 1;
+            const cursor = pageNo === 1 ? undefined : (cursors[pageNo - 2] ?? null);
+            if (cursor === null) {
+                break;
+            }
+            cursors.push(continuingCursor(await fetchListing(query, cursor), limit));
+        }
+
+        // 目标页超出末页时收回到链上确认过的最后一页（「下一页」按钮此时本就禁用了，这里兜底）
+        const lastPage = cursors.at(-1) === null ? cursors.length : Number.POSITIVE_INFINITY;
+        const page = Math.min(requested, lastPage);
+        const cursor = page === 1 ? undefined : (cursors[page - 2] ?? null);
+        if (page > 1 && cursor === null) {
+            throw new Error(`第 ${page} 页的翻页游标缺失`);
+        }
+
+        const listing = await fetchListing(query, cursor ?? undefined);
+        const nextCursor = continuingCursor(listing, limit);
+        // 链截断到这一页：后面的游标来自更早的一次列表请求，可能已经对不上
+        cursors.length = page - 1;
+        cursors.push(nextCursor);
+        const hasNext = nextCursor !== null;
+
+        const shown = listing.pairs.slice(0, limit);
+        if (shown.length === 0) {
+            const empty: GallerySearchResult = { items: [], page, limit, hasNext };
             rememberSearch(query, empty);
             return empty;
         }
 
-        const infos = await upstream.gdata(pairs.map((pair) => [pair.gid, pair.token]));
+        const infos = await upstream.gdata(shown.map((pair) => [pair.gid, pair.token] as const));
         const items = infos.filter((info) => info.error === undefined).map(toSummary);
-        const result: GallerySearchResult = {
-            items,
-            page,
-            limit,
-            // 上游不返回总数，取满一页即认为可能还有下一页
-            hasNext: pairs.length >= limit,
-        };
+        const result: GallerySearchResult = { items, page, limit, hasNext };
         rememberSearch(query, result);
         return result;
     }

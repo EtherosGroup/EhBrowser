@@ -40,8 +40,11 @@ export interface SearchUrlQuery {
     /** 排除这些分类 */
     readonly excludedCategories?: readonly string[];
     readonly language?: string;
-    /** 从 0 开始 */
-    readonly page?: number;
+    /**
+     * 翻页游标：只取该 gid 之后的结果
+     * 上游列表没有页码参数（page= 会被忽略），翻页只能靠游标，见 parseSearchNav
+     */
+    readonly next?: number;
     readonly minRating?: number;
 }
 
@@ -66,7 +69,10 @@ export function imagePageUrl(
     return skipHathKey === undefined ? base : `${base}?nl=${encodeURIComponent(skipHathKey)}`;
 }
 
-/** 搜索页。语言过滤并入 f_search，上游支持 language: 前缀 */
+/**
+ * 搜索页。语言过滤并入 f_search，上游支持 language: 前缀
+ * 翻页用 next 游标，不用 page（上游忽略 page=，见 SearchUrlQuery.next）
+ */
 export function searchUrl(site: UpstreamSite, query: SearchUrlQuery): string {
     const params = new URLSearchParams();
     const terms: string[] = [];
@@ -101,8 +107,8 @@ export function searchUrl(site: UpstreamSite, query: SearchUrlQuery): string {
         params.set("f_sr", "on");
         params.set("f_srdd", String(Math.max(1, Math.round(query.minRating))));
     }
-    if (query.page !== undefined && query.page > 0) {
-        params.set("page", String(query.page));
+    if (query.next !== undefined) {
+        params.set("next", String(query.next));
     }
 
     const search = params.toString();
