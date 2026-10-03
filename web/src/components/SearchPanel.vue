@@ -23,6 +23,7 @@ import { describeApiError, request } from "../api.ts";
 import { messenger } from "../messenger.ts";
 import { autoSearch, searchSettingsReady } from "../auto-search.ts";
 import { clearSearchHistory, rememberSearch, searchHistory } from "../search-history.ts";
+import { readSearchSession, saveSearchSession, type SearchSession } from "../search-session.ts";
 import {
     categoryLabel,
     suggestionQuery,
@@ -40,6 +41,7 @@ const language = ref("");
 const minRating = ref<number | null>(null);
 const selected = ref<GalleryCategory[]>([]);
 const items = ref<GallerySummary[]>([]);
+/** 已加载到第几页。「加载更多」按它取下一页，列表本身是累积的 */
 const page = ref(1);
 /** 关键词组选择弹窗 */
 const askGroups = ref(false);
@@ -172,8 +174,12 @@ function pickHistory(text: string): void {
     focusInput();
 }
 
-/** 把当前条件写回地址，返回搜索页时据此恢复 */
-function syncQuery(target: number): void {
+/**
+ * 把当前条件写回地址，返回搜索页时据此恢复。
+ * 加载到第几页不进地址：结果是一整份累积的列表，留个页号也复原不出来，
+ * 翻页进度由 search-session.ts 在会话内保留。
+ */
+function syncQuery(): void {
     const params: Record<string, string> = {};
     if (query.value.trim() !== "") {
         params["query"] = query.value.trim();
@@ -187,14 +193,11 @@ function syncQuery(target: number): void {
     if (selected.value.length > 0) {
         params["categories"] = selected.value.join(",");
     }
-    if (target > 1) {
-        params["page"] = String(target);
-    }
     void router.replace({ path: route.path, query: params });
 }
 
-/** 从地址恢复条件，返回要请求的页码 */
-function readQuery(): number {
+/** 从地址恢复条件 */
+function readQuery(): void {
     const raw = route.query;
     query.value = typeof raw["query"] === "string" ? raw["query"] : "";
     language.value = typeof raw["language"] === "string" ? raw["language"] : "";
@@ -203,7 +206,6 @@ function readQuery(): number {
     selected.value = categories.filter((item): item is GalleryCategory =>
         (GALLERY_CATEGORIES as readonly string[]).includes(item),
     );
-    return typeof raw["page"] === "string" ? Math.max(1, Number(raw["page"])) : 1;
 }
 
 /** 当前输入框里的条件换算成检索参数。page 与 limit 每次都写明，与缓存的比对才能对上 */
@@ -220,32 +222,51 @@ function currentQuery(target: number): GallerySearchQuery {
     };
 }
 
-/** 两组检索条件是不是同一组。只比实际给出的字段，缺失与 undefined 视为相同 */
-function sameQuery(a: GallerySearchQuery, b: GallerySearchQuery): boolean {
+/**
+ * 两组检索条件是不是同一组。只比实际给出的字段，缺失与 undefined 视为相同。
+ * 不比页码：一份结果里可能已经累积了好几页
+ */
+function sameConditions(a: GallerySearchQuery, b: GallerySearchQuery): boolean {
     const shape = (item: GallerySearchQuery): string =>
         JSON.stringify([
             item.query ?? "",
             item.language ?? "",
             item.minRating ?? 0,
             [...(item.categories ?? [])].sort(),
-            item.page ?? 1,
             item.limit ?? 0,
         ]);
     return shape(a) === shape(b);
 }
 
-/** 把缓存中的结果铺到界面上，条件一并恢复，输入框与结果不会不一致 */
-function applyCache(entry: GallerySearchCache): void {
+/** 与服务端检索缓存比对时要连页码一起对上，缓存里存的是某一次请求的那一页 */
+function sameQuery(a: GallerySearchQuery, b: GallerySearchQuery): boolean {
+    return sameConditions(a, b) && (a.page ?? 1) === (b.page ?? 1);
+}
+
+/**
+ * 把一份已经拿到的结果铺到界面上（服务端缓存里的那一页，或会话里那份累积的列表），
+ * 条件一并恢复，输入框与结果不会不一致
+ */
+function applySession(entry: SearchSession): void {
     const conditions = entry.query;
     query.value = conditions.query ?? "";
     searchedKey.value = conditions.query ?? "";
     language.value = conditions.language ?? "";
     minRating.value = conditions.minRating ?? null;
     selected.value = [...(conditions.categories ?? [])];
-    items.value = [...entry.result.items];
-    page.value = entry.result.page;
-    hasNext.value = entry.result.hasNext;
-    syncQuery(entry.result.page);
+    items.value = [...entry.items];
+    page.value = Math.max(1, conditions.page ?? 1);
+    hasNext.value = entry.hasNext;
+    syncQuery();
+}
+
+/** 把服务端缓存铺到界面上。缓存只留一页，页码就是那一页 */
+function applyCache(entry: GallerySearchCache): void {
+    applySession({
+        query: entry.query,
+        items: entry.result.items,
+        hasNext: entry.result.hasNext,
+    });
 }
 
 /** 打开关键词组选择窗；每次都重新拉一份，别处刚改的组也能看到 */
@@ -265,7 +286,12 @@ function insertGroup(group: KeywordGroup): void {
     askGroups.value = false;
 }
 
-async function run(target = 1): Promise<void> {
+/**
+ * 发起一次检索。
+ * append 为真表示「加载更多」：把这一页接在已加载的内容后面，
+ * 结果区始终是一整份列表（因此组件重建后要靠 search-session.ts 才铺得回来）。
+ */
+async function run(target = 1, append = false): Promise<void> {
     busy.value = true;
     // 浮层先收起来：新结果马上铺出来，别让它盖在上面
     panelDismissed.value = true;
@@ -278,10 +304,22 @@ async function run(target = 1): Promise<void> {
     try {
         const result = await request("galleries.search", { query: asked });
         searchedKey.value = asked.query ?? "";
-        items.value = [...result.items];
+        /*
+         * 「加载更多」只在页码确实前进了才接上去：服务端会把越界的页收回末页，
+         * 那种响应的页码与内容都还是已加载的末页，直接接会把末页重复一遍。
+         */
+        if (!append || result.page > page.value) {
+            items.value = append ? [...items.value, ...result.items] : [...result.items];
+        }
         page.value = result.page;
         hasNext.value = result.hasNext;
-        syncQuery(result.page);
+        saveSearchSession({
+            // 记实际加载到的页码：asked.page 可能是被服务端收回的越界页号
+            query: { ...asked, page: result.page },
+            items: items.value,
+            hasNext: result.hasNext,
+        });
+        syncQuery();
     } catch (caught) {
         messenger.error(describeApiError(caught));
     } finally {
@@ -291,7 +329,8 @@ async function run(target = 1): Promise<void> {
 
 /**
  * 打开搜索页时展示的内容。
- * 地址中带了条件时按条件处理（缓存正好是同一组才直接铺，否则发起检索）；
+ * 会话里留着上一次加载的整份列表（组件重建也还在）且条件对得上时直接铺回去，不请求。
+ * 否则：地址中带了条件时按条件处理（服务端缓存正好是同一组才直接铺，否则发起检索）；
  * 地址未带条件时先看缓存，缓存中有什么就铺什么，没有才请求一次默认列表。
  *
  * 「自动搜索」关掉后（设置 > 搜索，默认关闭）不主动发起检索：
@@ -299,10 +338,16 @@ async function run(target = 1): Promise<void> {
  * 地址带条件时仍然检索——那是用户从详情页带过来的意图，不是我们自作主张。
  */
 async function restore(): Promise<void> {
+    readQuery();
+    const hasUrlConditions = Object.keys(route.query).length > 0;
+    // 进过详情页再回来、或从标签页切回来：组件重建，会话里那份直接铺回去，不请求也不再等设置
+    const session = readSearchSession();
+    if (session !== null && (!hasUrlConditions || sameConditions(session.query, currentQuery(1)))) {
+        applySession(session);
+        return;
+    }
     // 等设置读回来（最多 2 秒）：否则 autoSearch 还是默认值，会把「开着」误判成「关着」
     await Promise.race([searchSettingsReady, new Promise((resolve) => setTimeout(resolve, 2_000))]);
-    const fromUrl = readQuery();
-    const hasUrlConditions = Object.keys(route.query).length > 0;
     busy.value = true;
     let cached: GallerySearchCache | null = null;
     try {
@@ -313,12 +358,12 @@ async function restore(): Promise<void> {
     } finally {
         busy.value = false;
     }
-    if (cached !== null && (!hasUrlConditions || sameQuery(cached.query, currentQuery(fromUrl)))) {
+    if (cached !== null && (!hasUrlConditions || sameQuery(cached.query, currentQuery(1)))) {
         applyCache(cached);
         return;
     }
     if (hasUrlConditions || autoSearch.value) {
-        await run(fromUrl);
+        await run(1);
         return;
     }
     // 自动搜索关闭：不请求上游，把输入框让给用户
@@ -489,10 +534,13 @@ onMounted(() => {
             :empty-text="emptyText"
         />
 
+        <!-- 结果是一整份列表：「加载更多」往下接一页，不再分页 -->
         <footer v-if="items.length > 0">
-            <button :disabled="busy || page <= 1" @click="run(page - 1)">上一页</button>
-            <span class="muted">第 {{ page }} 页</span>
-            <button :disabled="busy || !hasNext" @click="run(page + 1)">下一页</button>
+            <span class="muted">已加载 {{ items.length }} 条</span>
+            <button v-if="hasNext" :disabled="busy" @click="run(page + 1, true)">
+                {{ busy ? "正在加载…" : "加载更多" }}
+            </button>
+            <span v-else class="muted">已到最后一页</span>
         </footer>
 
         <Dialog v-model="askGroups" title="从关键词组插入" width="560px">
