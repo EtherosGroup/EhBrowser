@@ -1,6 +1,6 @@
 # 推一个 v* 标签即发布一个 Release，附便携包与 Windows 安装器
 #
-#   npm version minor
+#   pnpm version minor
 #   git push origin HEAD --tags
 #
 # 同一个标签会触发两条工作流，互不依赖：
@@ -10,7 +10,7 @@
 #
 # 不需要任何密钥：创建 Release 与上传附件用仓库自带的 GITHUB_TOKEN，
 # 发 npm 走 Trusted Publishing 的 OIDC 临时凭证。
-# 便携包由 scripts/portable.mjs 生成（内含 npm run build），内容与体积见 README「发布」一节。
+# 便携包由 scripts/portable.mjs 生成（内含 pnpm run build），内容与体积见 README「发布」一节。
 # 安装器是 installer/windows 下的 CMake 工程，只依赖 MSVC 工具链，因此单放一个 Windows job。
 #
 # 为什么拆成三个 job：两个构建 job 互不依赖、各自把产物传成 workflow artifact，
@@ -46,15 +46,17 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
+            - uses: pnpm/action-setup@v6 # 版本取自 package.json 的 packageManager
+
             - uses: actions/setup-node@v7
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
 
             # 使用锁文件安装依赖：与作者本地一致，且能提前发现 package.json 与锁文件不一致
-            - run: npm ci
+            - run: pnpm install --frozen-lockfile
 
-            - run: npm run typecheck
+            - run: pnpm run typecheck
 
             # 标签与 package.json 里的版本必须一致，否则附件名与 npm 上那一版会互相矛盾
             - name: 核对标签与 package.json 的版本
@@ -65,13 +67,13 @@ jobs:
                   version="v$(node -p "require('./package.json').version")"
                   if [ "$tag" != "$version" ]; then
                     echo "标签是 $tag，但 package.json 里是 $version。"
-                    echo "先跑 npm version 改版本号并提交，再用同名标签。"
+                    echo "先跑 pnpm version 改版本号并提交，再用同名标签。"
                     exit 1
                   fi
                   echo "版本对得上：$tag"
 
-            # 内含 npm run build，产物为 release/EhBrowser-<版本>-portable.zip 与同名目录
-            - run: npm run release:portable
+            # 内含 pnpm run build，产物为 release/EhBrowser-<版本>-portable.zip 与同名目录
+            - run: pnpm run release:portable
 
             # 推标签时由 release job 取出来发版，手动触发时留作演练产物，因此两条路都上传
             - name: 暂存便携包
@@ -100,7 +102,7 @@ jobs:
                   $tag = "${{ github.ref_name }}"
                   if ($tag -ne "v$version") {
                       Write-Host "标签是 $tag，但 package.json 里是 v$version。"
-                      Write-Host "先跑 npm version 改版本号并提交，再用同名标签。"
+                      Write-Host "先跑 pnpm version 改版本号并提交，再用同名标签。"
                       exit 1
                   }
                   Write-Host "版本对得上：$tag"

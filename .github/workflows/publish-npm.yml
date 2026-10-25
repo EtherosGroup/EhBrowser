@@ -22,6 +22,9 @@
 #   建立后靠 OIDC 临时凭证发布，自动带上 provenance 签名，不需要长期 token。
 #   （另一条路是传统 Token：仓库密钥 NPM_TOKEN + 放开下面 NODE_AUTH_TOKEN 那行。）
 #
+# 依赖用 pnpm 安装（仓库里是 pnpm-lock.yaml，pnpm 版本由 package.json 的 packageManager 固定），
+# 发布用 npm CLI：Trusted Publishing 的 OIDC 要求 npm ≥ 11.5.1。
+#
 # 演练：手动触发时将 dry-run 保持 true，只查看打包结果，不实际发布。
 
 name: publish-npm
@@ -51,15 +54,17 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
+            - uses: pnpm/action-setup@v6 # 版本取自 package.json 的 packageManager
+
             - uses: actions/setup-node@v7
               with:
                   node-version: 24 # 自带的 npm 是 11.x，满足 Trusted Publishing 要求的 npm ≥ 11.5.1
                   registry-url: https://registry.npmjs.org/
-                  cache: npm
+                  cache: pnpm
 
-            - run: npm ci
+            - run: pnpm install --frozen-lockfile
 
-            - run: npm run typecheck
+            - run: pnpm run typecheck
 
             # 发布包内容取决于构建产物，而 dist/ 不在仓库里（由构建生成、已被 ignore）：
             # 先构建再核对清单。npm pack 不触发 prepublishOnly，只有 npm publish 会触发，
@@ -67,7 +72,7 @@ jobs:
             - name: 构建并核对发布包内容
               run: |
                   set -euo pipefail
-                  npm run build
+                  pnpm run build
                   # npm 把清单写在 stderr，因此需要 2>&1，否则 tee 拿到的是空文件
                   npm pack --dry-run 2>&1 | tee /tmp/pack.txt
                   # 这两个文件必须进包，否则安装后得到的是一个无法运行的空包
@@ -111,7 +116,7 @@ jobs:
             - name: 发布
               # 推标签时直接发；手动触发时只有把 dry-run 关掉才发。已经发过的版本跳过
               if: ${{ (github.event_name == 'push' || !inputs.dry-run) && steps.check.outputs.skip != '1' }}
-              # prepublishOnly 会自动运行 npm run build，因此这里不必再构建一次
+              # prepublishOnly 会自动运行 pnpm run build，因此这里不必再构建一次
               run: npm publish --provenance --access public
               # env:
               #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # 用 Trusted Publishing 时不需要

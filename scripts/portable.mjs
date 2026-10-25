@@ -8,7 +8,7 @@
  * zip 由本脚本自行生成。项目不引入第三方依赖，Node 亦无内置的 zip 写入能力（仅 zlib），
  * 因此按 PKZIP 格式手工拼接文件头与中央目录，文件名标记为 UTF-8（启动脚本名为中文）。
  *
- * 用法：npm run release:portable（含构建），产物位于 release/。
+ * 用法：pnpm run release:portable（含构建），产物位于 release/。
  */
 
 import { createHash } from "node:crypto";
@@ -180,7 +180,7 @@ try {
     await stat(join(root, "dist", "main.js"));
     await stat(join(root, "dist", "web", "index.html"));
 } catch {
-    console.error("没找到 dist/ 构建产物：先跑 npm run build（或用 npm run release:portable）");
+    console.error("没找到 dist/ 构建产物：先跑 pnpm run build（或用 pnpm run release:portable）");
     process.exit(1);
 }
 
@@ -199,7 +199,7 @@ for (const name of runtimeDeps) {
     try {
         await stat(from);
     } catch {
-        console.error(`缺少生产依赖 node_modules/${name}：先跑 npm ci`);
+        console.error(`缺少生产依赖 node_modules/${name}：先跑 pnpm install --frozen-lockfile`);
         process.exit(1);
     }
     await copyTree(from, join(stage, "node_modules", name));

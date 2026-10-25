@@ -26,7 +26,7 @@ PC 端的 E-Hentai 浏览器。形态为本地服务 + 浏览器界面：进程�
 - [开发约定](#开发约定)
 - [发布](#发布)
     - [打标签与发 Release](#打标签与发-release)
-    - [便携包（`npm run release:portable`）](#便携包npm-run-releaseportable)
+    - [便携包（`pnpm run release:portable`）](#便携包pnpm-run-releaseportable)
     - [Windows 安装器（`installer/windows`）](#windows-安装器installerwindows)
     - [发到 npm](#发到-npm)
 - [当前状态](#当前状态)
@@ -34,13 +34,16 @@ PC 端的 E-Hentai 浏览器。形态为本地服务 + 浏览器界面：进程�
 
 ## 环境要求
 
-| 项      | 要求                                                                        |
-| ------- | --------------------------------------------------------------------------- |
-| Node.js | >= 22.18.0。依赖原生 TypeScript 类型擦除，`node` 直接运行 `.ts`             |
-| 网络    | 中国大陆直连 e-hentai.org 不可达，须自备代理（HTTP / HTTPS，SOCKS5 不支持） |
-| 账号    | E-Hentai 账号。访问里站要求账号具备 ex 权限                                 |
+| 项      | 要求                                                                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js | >= 22.18.0。依赖原生 TypeScript 类型擦除，`node` 直接运行 `.ts`                                                                                   |
+| pnpm    | >= 10。仓库依赖由 pnpm 管理（`pnpm-lock.yaml`），版本由 `package.json` 的 `packageManager` 固定；Node 自带的 Corepack 执行 `corepack enable` 即可 |
+| 网络    | 中国大陆直连 e-hentai.org 不可达，须自备代理（HTTP / HTTPS，SOCKS5 不支持）                                                                       |
+| 账号    | E-Hentai 账号。访问里站要求账号具备 ex 权限                                                                                                       |
 
-运行时依赖 `undici`（HTTP 传输与代理）。`typescript`、`oxfmt` 只用于开发。
+运行时依赖 `undici`（HTTP 传输与代理）与 `playwright-core`（浏览器登录，不含浏览器二进制）。`typescript`、`oxfmt` 只用于开发。
+
+源码开发用 pnpm：`pnpm install --frozen-lockfile` 按 `pnpm-lock.yaml` 装出与作者一致的依赖树（`package-lock.json` 已移除）。
 
 Windows 上不想自己装 Node.js 的话，用[方式三](#方式三windows-安装器从-release-下载)的安装器，它会代装。
 
@@ -61,42 +64,43 @@ ehbrowser
 
 ### 方式二：从源码运行（clone 后自己跑）
 
-前置条件见[环境要求](#环境要求)：Node >= 22.18.0、git、可用的 HTTP 代理。
+前置条件见[环境要求](#环境要求)：Node >= 22.18.0、pnpm、git、可用的 HTTP 代理。
 
 ```bash
 git clone https://github.com/EtherosGroup/EhBrowser.git
 cd EhBrowser
-npm install     # 要装出与作者一致的依赖树，改用 npm ci（按仓库里的 package-lock.json）
-npm start       # 直接运行 src/main.ts，无需构建
+corepack enable                  # 首次：按 packageManager 让 pnpm 就位（已装 pnpm 可跳过）
+pnpm install --frozen-lockfile   # 按 pnpm-lock.yaml 装出与作者一致的依赖树
+pnpm start                       # 直接运行 src/main.ts，无需构建
 ```
 
 启动后终端打印界面地址（默认 `http://localhost:7727/`），并尝试打开浏览器。参数：
 
 ```bash
-npm start -- --port 6000     # 换端口
-npm start -- --no-open       # 不打开浏览器
+pnpm start --port 6000     # 换端口
+pnpm start --no-open       # 不打开浏览器
 ```
 
 进入界面后需要先在设置页填代理、在账号页登录，步骤见[使用](#使用)。
 
 常用操作：
 
-- 只改前端时：`npm run dev:web` 启动 watch 构建，改动后刷新页面。服务端仍由 `npm start` 启动的进程提供。
-- 前后端一起改时：`npm run dev` 同时做前端 watch 构建与服务端自动重启。
-- 运行构建产物（与 `npm install -g` 的形态一致）：`npm run build` 之后执行 `npm run preview`。前者把服务端编译到 `dist/`，把前端构建到 `dist/web/`。
-- 更新：执行 `git pull`。`package-lock.json` 有变化时再执行一次 `npm install`（或 `npm ci`）。
-- 数据位置：`npm run config:path` 打印配置、数据、缓存三个目录及其来源。默认 `~/.config/ehbrowser`、`~/.local/share/ehbrowser`、`~/.cache/ehbrowser`。需要让数据全部落在一个目录（便携版）时，设置 `EHBROWSER_HOME`。
+- 只改前端时：`pnpm run dev:web` 启动 watch 构建，改动后刷新页面。服务端仍由 `pnpm start` 启动的进程提供。
+- 前后端一起改时：`pnpm run dev` 同时做前端 watch 构建与服务端自动重启。
+- 运行构建产物（与 `npm install -g` 的形态一致）：`pnpm run build` 之后执行 `pnpm run preview`。前者把服务端编译到 `dist/`，把前端构建到 `dist/web/`。
+- 更新：执行 `git pull`。`pnpm-lock.yaml` 有变化时再执行一次 `pnpm install`（或 `pnpm install --frozen-lockfile`）。
+- 数据位置：`pnpm run config:path` 打印配置、数据、缓存三个目录及其来源。默认 `~/.config/ehbrowser`、`~/.local/share/ehbrowser`、`~/.cache/ehbrowser`。需要让数据全部落在一个目录（便携版）时，设置 `EHBROWSER_HOME`。
 - 卸载：删除 clone 出来的目录。需要彻底清理时，再删除上面三个数据目录。
 
 启动失败时对照下表：
 
-| 现象                                      | 原因与处理                                                                                 |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `npm start` 报语法/类型擦除相关错误       | Node 低于 22.18.0。`node -v` 确认后升级                                                    |
-| 界面能打开，搜索一直转圈或报超时          | 未配代理。中国大陆直连上游不可达，见[使用](#使用)第 4 条                                   |
-| 提示端口被占用                            | 改用 `--port` 指定其他端口，或结束占用 7727 的进程                                         |
-| `npm ci` 报锁文件与 `package.json` 不一致 | 依赖改过，锁文件未更新。执行 `npm install` 重新生成，并把 `package-lock.json` 一起提交     |
-| 改了源码，界面没变化                      | 界面产物需要重新构建：前端改动执行 `npm run dev:web`（或 `npm run build:web`），再刷新页面 |
+| 现象                                                              | 原因与处理                                                                                   |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm start` 报语法/类型擦除相关错误                              | Node 低于 22.18.0。`node -v` 确认后升级                                                      |
+| 界面能打开，搜索一直转圈或报超时                                  | 未配代理。中国大陆直连上游不可达，见[使用](#使用)第 4 条                                     |
+| 提示端口被占用                                                    | 改用 `--port` 指定其他端口，或结束占用 7727 的进程                                           |
+| `pnpm install --frozen-lockfile` 报锁文件与 `package.json` 不一致 | 依赖改过，锁文件未更新。执行 `pnpm install` 重新生成，并把 `pnpm-lock.yaml` 一起提交         |
+| 改了源码，界面没变化                                              | 界面产物需要重新构建：前端改动执行 `pnpm run dev:web`（或 `pnpm run build:web`），再刷新页面 |
 
 ### 方式三：Windows 安装器（从 Release 下载）
 
@@ -125,7 +129,7 @@ EhBrowser-1.7.3-installer.exe --no-shortcuts        :: 不建快捷方式（--sh
 
 ## 使用
 
-1. 启动服务。终端打印本地地址（默认 `http://localhost:7727/`）与退出方式。需要换端口时用 `--port`：`npm start -- --port 6000`。
+1. 启动服务。终端打印本地地址（默认 `http://localhost:7727/`）与退出方式。需要换端口时用 `--port`：`pnpm start --port 6000`。
 2. 在浏览器中打开该地址。
 3. 首次打开会弹一条提醒，内容为本软件免费、被收钱即为被骗。提醒里附仓库与 QQ 群（597399171）两个问询处。点「知道了」后不再出现。
 4. 首次使用要完成两项设置：
@@ -135,18 +139,18 @@ EhBrowser-1.7.3-installer.exe --no-shortcuts        :: 不建快捷方式（--sh
 
 常用命令：
 
-| 命令                   | 用途                                           |
-| ---------------------- | ---------------------------------------------- |
-| `npm start`            | 开发模式运行源码，无需构建                     |
-| `npm run dev`          | 前端 watch 构建 + 服务，服务端改动自动重启     |
-| `npm run build`        | 编译服务端到 `dist/`，并构建前端到 `dist/web/` |
-| `npm run build:web`    | 只构建前端                                     |
-| `npm run dev:web`      | 前端 watch 构建，改动后刷新页面                |
-| `npm run preview`      | 运行构建产物                                   |
-| `npm run config:path`  | 打印生效的数据目录与文件状态                   |
-| `npm run typecheck`    | 类型检查                                       |
-| `npm run format`       | Oxfmt 格式化（4 空格缩进）                     |
-| `npm run format:check` | 格式检查                                       |
+| 命令                    | 用途                                           |
+| ----------------------- | ---------------------------------------------- |
+| `pnpm start`            | 开发模式运行源码，无需构建                     |
+| `pnpm run dev`          | 前端 watch 构建 + 服务，服务端改动自动重启     |
+| `pnpm run build`        | 编译服务端到 `dist/`，并构建前端到 `dist/web/` |
+| `pnpm run build:web`    | 只构建前端                                     |
+| `pnpm run dev:web`      | 前端 watch 构建，改动后刷新页面                |
+| `pnpm run preview`      | 运行构建产物                                   |
+| `pnpm run config:path`  | 打印生效的数据目录与文件状态                   |
+| `pnpm run typecheck`    | 类型检查                                       |
+| `pnpm run format`       | Oxfmt 格式化（4 空格缩进）                     |
+| `pnpm run format:check` | 格式检查                                       |
 
 ## 配置与数据目录
 
@@ -219,7 +223,7 @@ XDG_CONFIG_HOME 等                                                系统默认
 - 登录在论坛域（forums.e-hentai.org）以表单完成。成功后服务端保存 `ipb_member_id` 与 `ipb_pass_hash`，再访问画廊站取回 `igneous`。取不到 igneous 时登录仍算成功，只是里站不可用。
 - **出口节点过不了人机校验时，密码对不对都没用**：论坛登录端点会一直回 Cloudflare 的「Just a moment...」挑战页（HTTP 403、响应头 `cf-mitigated: challenge`），正文里没有凭据 Cookie。`isUpstreamChallenge` 认出这种响应后抛 `UpstreamChallengeError`，服务端按 `upstream_unavailable`（不是 400）回给界面，并直接说清是**人机校验**而不是账号密码错——早先这种情况混在「未获得凭据 Cookie」里，看起来像自己把用户名填错了。日志里也留一条 warn。出路有三条：换一个节点、走下面的导入 Cookie、或走**浏览器登录**。
 - **浏览器登录**（`src/services/browser-login.ts`）：界面上点一下，服务端用 Playwright 拉起**系统里已装的浏览器**（Windows 自带 Edge，Linux 桌面上一般有 Chrome/Chromium），你在窗口里自己登录，成功后服务端从浏览器内核里读走凭据 cookie，然后**走和导入 Cookie 完全相同的那条路**（落库 → 补 `igneous` → 探测里站）。它比导入省事，原理上的差别只是 cookie 由服务端自己去取而非手粘。
-    - 依赖 `playwright-core`（**不含浏览器二进制**，所以 `npm install` 不会拉几百 MB），浏览器用系统已有的；系统里都没有时可 `npx playwright install chromium`。
+    - 依赖 `playwright-core`（**不含浏览器二进制**，所以 `pnpm install` 不会拉几百 MB），浏览器用系统已有的；系统里都没有时可 `npx playwright install chromium`。
     - 窗口**必须走与应用相同的代理**：取自 `network.proxy` 与 `auth_setting` 的 `proxyAuth`，与传输层同一份配置。直连不通的网络里不传代理，窗口里连登录页都打不开。
     - 会话状态放在 `AuthStatus.browserLogin`，随既有 `auth.changed` 事件推给界面；`start` 立刻返回，不把「等用户登录」这件事塞进一次 HTTP 响应。同时只允许一个会话。
     - 浏览器 profile 持久化在 `cacheDir/login-browser`：第二次登录常常不必再过挑战。代价是那份 profile 里存着一份登录态（与 `auth_setting.json` 同级别，别外传）。
@@ -593,7 +597,7 @@ scripts/
     - 占位层的颜色取 `style.scss` 里的 `--placeholder-*`；浮层层级取 `--z-card` / `--z-floating` / `--z-overlay` 一档，不写魔法数字。
 - 字号统一走 `style.scss` 里的 `--font-size-*` 阶梯：基准正文 1.2rem，其余每档相差 0.1rem，全部用 rem（小数点后最多一位），组件里不写像素字号。
 - 图标默认是组件里手写的 SVG（`fill: none` + `stroke: currentColor` + 1.7 线宽）。例外是三处用图标字体：下载页左下角的设置入口、播放器控制栏的自动播放设置按钮都用 `.icon-setting`，搜索按钮用 `.icon-search`，来自 iconfont 包（源码 `web/src/assets/iconfont.ttf`，声明在 `web/src/icons.scss`，在 `main.ts` 里随 `style.scss` 一起引入）。字体只有两个字形（setting `\e78e`、search `\e8ef`），2.2KB，小于 Vite 的内联阈值，构建时直接内联进 CSS，不额外请求，也不依赖服务端的字体 MIME 映射。用法：`<i class="iconfont icon-setting" aria-hidden="true" />`。旁边有文字说明时加 `aria-hidden`，颜色与字号跟随所在按钮（`font-size: 1em`），要单独调大就在调用处按 rem 写 `font-size`（播放器里写的是 `--font-size-lg`，与同一排 SVG 的 17px 相当）。
-- 开发前端用 `npm run dev`（同时运行 watch 构建与本地服务），改动后刷新页面。只运行其中一部分时用 `npm run dev:web` 与 `npm start`。
+- 开发前端用 `pnpm run dev`（同时运行 watch 构建与本地服务），改动后刷新页面。只运行其中一部分时用 `pnpm run dev:web` 与 `pnpm start`。
 - 不另起 `vite dev`：它会产生第二个源，Origin 与注入的令牌都不一致。
 - 构建失败时 Vite 会清空 `dist/web`（`emptyOutDir`），页面暂时 404，改回来自动恢复。
 - 样式可用 SCSS：全局样式是 `web/src/style.scss`，组件内写 `<style scoped lang="scss">`。
@@ -630,13 +634,13 @@ scripts/
 ### 打标签与发 Release
 
 ```bash
-npm version minor                 # 改版本号并打本地附注标签（v1.0.0 -> v1.1.0）
+pnpm version minor                 # 改版本号并打本地附注标签（v1.0.0 -> v1.1.0）
 git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .github/workflows/release.yml
 ```
 
 一个标签会触发**两条工作流，互不依赖**：
 
-- `release.yml`：两个构建 job 并行，最后由一个 release job 汇总发版。便携包那条在 ubuntu-24.04 上跑：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 把 zip 传成 workflow artifact。安装器那条在 windows-2025（当前即 VS 2026 镜像）上跑：同样的版本核对 -> `cmake --preset x64-Release` -> `cmake --build --preset x64-Release` -> 跑一次 `--help` 冒烟测试 -> 把 exe 改名为 `EhBrowser-<版本>-installer.exe` 后传成 workflow artifact。release job 等两个构建都成功，从 artifact 取回两个产物，用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
+- `release.yml`：两个构建 job 并行，最后由一个 release job 汇总发版。便携包那条在 ubuntu-24.04 上跑：`pnpm install --frozen-lockfile` -> `pnpm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `pnpm run release:portable` -> 把 zip 传成 workflow artifact。安装器那条在 windows-2025（当前即 VS 2026 镜像）上跑：同样的版本核对 -> `cmake --preset x64-Release` -> `cmake --build --preset x64-Release` -> 跑一次 `--help` 冒烟测试 -> 把 exe 改名为 `EhBrowser-<版本>-installer.exe` 后传成 workflow artifact。release job 等两个构建都成功，从 artifact 取回两个产物，用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
 - `publish-npm.yml`：同样的构建与核对，然后把这一版发到 npm（`npm publish --provenance --access public`，包名 `@etheros/ehbrowser`），用 Trusted Publishing 的 OIDC 临时凭证。它先查该版本是否已经在 npm 上，已发过就跳过，因此重复推标签不会多出一条失败记录。
 
 两个构建各传 artifact、再由第三个 job 汇总，是因为安装器只能在 Windows 上用 MSVC 编，而便携包适合在 Linux 上打（`portable.mjs` 按 unix 的 mode 位记录 `启动.sh` 的可执行位）：分开跑能并行，且同一时刻只有一个 job 会碰 Release——两个 job 同时 `gh release create` 同一个标签会撞车（先到的建成功，后到的 422）。两个构建都成功才发版，因此不会留下只有一半附件的 Release。
@@ -645,14 +649,14 @@ git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .g
 
 手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 与 exe 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
 
-### 便携包（`npm run release:portable`）
+### 便携包（`pnpm run release:portable`）
 
 `scripts/portable.mjs` 先构建，再把解压后即可使用的一份复制进 `release/EhBrowser-<版本>/` 并打成一个 zip：
 
 ```
 EhBrowser-1.0.0/
     dist/                服务端 + 前端构建产物
-    node_modules/undici  生产依赖（当前只有它，自身没有依赖）
+    node_modules/         生产依赖（undici、playwright-core；均不含二进制，体积见下）
     package.json  LICENSE  README.md
     启动.sh / 启动.bat    设置 EHBROWSER_HOME 到包目录，然后 node dist/main.js
     使用说明.txt          给不懂 Node 的人看的几行说明
@@ -660,7 +664,7 @@ EhBrowser-1.0.0/
 
 - 包内不带 Node 运行时：目标机器上要有 node ≥ 22.18.0（`使用说明.txt` 中也有说明）。
 - 绿色版：启动脚本把 `EHBROWSER_HOME` 指到包目录，配置、数据库、缓存与默认下载目录都存放在包内（实测 `/api/config/paths` 三个根目录的来源都是 `portable-home`）。删除该行后恢复到按用户目录存放。
-- 产物不进仓库：落在 `release/`（已加进 `.gitignore`），由 CI 作为 Release 附件上传。实测 280 个文件、约 800 KB。
+- 产物不进仓库：落在 `release/`（已加进 `.gitignore`），由 CI 作为 Release 附件上传。实测约 410 个文件、约 4 MB。
 - zip 由脚本按 PKZIP 格式自行写入（项目不引第三方依赖，Node 没有内置的 zip 写入，只有 zlib）：自行拼接本地文件头与中央目录，文件名打 UTF-8 标记（启动脚本名是中文），`启动.sh` 用外部属性保留可执行位。
 
 ### Windows 安装器（`installer/windows`）
@@ -710,7 +714,7 @@ npm trust list @etheros/ehbrowser   # 核对
 ```bash
 npm login                    # 登入有 @etheros 权限的账号
 npm pack --dry-run           # 先看清单：应当只有 dist/ 与 README、LICENSE、package.json
-npm publish --access public  # prepublishOnly 会自动跑 npm run build
+npm publish --access public  # prepublishOnly 会自动跑 pnpm run build
 ```
 
 ## 当前状态
@@ -724,7 +728,7 @@ npm publish --access public  # prepublishOnly 会自动跑 npm run build
 | `services/`             | 已实现：config-service、upstream-service、gallery-service、detail-cache、auth-service、download-service、search-cache、local-library、zip、playlist-service、update-service、favorite-service、translate-service、log-service |
 | `server.ts` / `main.ts` | 已实现：回环服务、令牌与 Origin/Host 校验、SSE、静态界面与令牌注入                                                                                                                                                            |
 
-`npm start` 启动服务并打开界面（默认 `http://localhost:7727/`，首次打开弹一条「这是免费软件」的提醒）。可用：搜索（含结果缓存与启动预热）；详情（含精灵图缩略图条与就地放大的灯箱，下载过的画廊用落盘的详情快照，本地浏览不请求上游）；日志（控制台 + 文件 + 服务页实时显示）；播放器（翻页、缩放、自动播放、网页全屏，本地副本零请求）；播放列表（用户列表持久化，重启不丢失）；全部预览；标签翻译（含按需下载的完整词库）；播放器与翻译设置；配置修改；账号登录与切换；归档下载与逐页下载（游客也能逐页下载，落盘为本地画廊目录，详情页快照一并存下）；本地库列表与本地取图；下载失败重试；更新检查；收藏（本地夹 / 云端槽位 / 更新标记号）；关闭服务。
+`pnpm start` 启动服务并打开界面（默认 `http://localhost:7727/`，首次打开弹一条「这是免费软件」的提醒）。可用：搜索（含结果缓存与启动预热）；详情（含精灵图缩略图条与就地放大的灯箱，下载过的画廊用落盘的详情快照，本地浏览不请求上游）；日志（控制台 + 文件 + 服务页实时显示）；播放器（翻页、缩放、自动播放、网页全屏，本地副本零请求）；播放列表（用户列表持久化，重启不丢失）；全部预览；标签翻译（含按需下载的完整词库）；播放器与翻译设置；配置修改；账号登录与切换；归档下载与逐页下载（游客也能逐页下载，落盘为本地画廊目录，详情页快照一并存下）；本地库列表与本地取图；下载失败重试；更新检查；收藏（本地夹 / 云端槽位 / 更新标记号）；关闭服务。
 
 未实现或未验证：评分、排行榜、图片翻译未实现；云端收藏夹的页面解析只做了降级处理，未对真实上游验证；归档下载的完整链路（需登录且消耗 GP）未验证。详见下文「未做与已知限制」。
 

@@ -32,14 +32,14 @@
         "dev": "node ./src/dev.ts",
         "build": "tsc -p tsconfig.build.json && vite build",
         "preview": "node ./dist/main.js",
-        "prepublishOnly": "npm run build",
+        "prepublishOnly": "pnpm run build",
         "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json",
         "config:path": "node ./src/config/cli.ts",
         "format": "oxfmt .",
         "format:check": "oxfmt --check .",
         "build:web": "vite build",
         "dev:web": "vite build --watch",
-        "release:portable": "npm run build && node scripts/portable.mjs"
+        "release:portable": "pnpm run build && node scripts/portable.mjs"
     },
     "dependencies": {
         "playwright-core": "^1.63.0",
@@ -60,5 +60,6 @@
     },
     "engines": {
         "node": ">=22.18.0"
-    }
+    },
+    "packageManager": "pnpm@12.14.0"
 }
