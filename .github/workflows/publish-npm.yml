@@ -109,7 +109,8 @@ jobs:
                   fi
 
             - name: 演练（不发布）
-              if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+              # 已发布过的版本不能再 dry-run：npm 会报“不能覆盖已发布版本”，因此跟着上面的跳过走
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run && steps.check.outputs.skip != '1' }}
               # 同样会运行 prepublishOnly（再次构建），因此这里打印的是实际的内容清单
               run: npm publish --dry-run
 
