@@ -1,0 +1,4 @@
+# pnpm 11+ 的项目设置只从这里读。allowBuilds 放行依赖的构建脚本，
+# 缺这一项时 pnpm install 会以 ERR_PNPM_IGNORED_BUILDS 失败（@parcel/watcher 经 sass 引入）。
+allowBuilds:
+    "@parcel/watcher": true
