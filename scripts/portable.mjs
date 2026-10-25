@@ -169,7 +169,11 @@ async function zipDirectory(sourceDir, zipPath, prefix) {
 // ── 组装 ──────────────────────────────────────────────────────
 
 const { pkg, shell, batch, readme } = await collectInputs();
-const appName = `${pkg.name === "ehbrowser" ? "EhBrowser" : pkg.name}-${pkg.version}`;
+/** 包名可能带 scope（@etheros/ehbrowser），取末段判断是不是本应用，决定附件里显示的名字 */
+const pkgShortName = pkg.name.includes("/")
+    ? pkg.name.slice(pkg.name.lastIndexOf("/") + 1)
+    : pkg.name;
+const appName = `${pkgShortName === "ehbrowser" ? "EhBrowser" : pkgShortName}-${pkg.version}`;
 const stage = join(releaseDir, appName);
 
 try {

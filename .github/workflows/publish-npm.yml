@@ -7,15 +7,19 @@
 # 为什么是「自己盯标签」而不是被 release.yml 调用（走过一次弯路，记在这里）：
 # npm 的 Trusted Publisher 认的是**触发这次运行的入口工作流**，而不是真正执行发布的那一个。
 # 实测：release.yml 里用 `uses: ./.github/workflows/publish-npm.yml` 调用时，
-# `npm publish` 拿到 OIDC 后 registry 回 E404（provenance 都签名上传了，鉴权就是不通过）；
+# `npm publish` 拿到 OIDC 后 registry 回 E404（provenance 都签名上传了，鉴权就是不通过；
+# 当时包名还是不带 scope 的 ehbrowser）；
 # 直接跑 publish-npm.yml（手动或推标签）则成功——1.0.1、1.0.2 就是这么发出去的。
 # 所以要么让 npm 侧把工作流文件名改成 release.yml，要么让这个工作流自己盯标签；这里选后者，
 # npm 侧不必改配置（配置里填的是 publish-npm.yml，与手动演练路径也一致）。
 #
 # 授权方式：
-#   Trusted Publishing（当前用的）：npmjs.com -> 你的包 -> Settings -> Trusted Publisher ->
-#   GitHub Actions，填仓库 EtherosGroup/EhBrowser 与工作流文件名 publish-npm.yml。
-#   靠 OIDC 临时凭证发布，自动带上 provenance 签名，不需要长期 token。
+#   Trusted Publishing（当前用的）：把本仓库与工作流文件登记为 @etheros/ehbrowser 的受信发布者。
+#   包首次发布时 registry 里还没有这个包，登记不了，因此第一版（1.7.3）是本地带发布 token
+#   发出去的；之后用下面这条命令建立信任关系（会要求 npm 账号的 2FA 确认）：
+#     npm trust github @etheros/ehbrowser --file publish-npm.yml \
+#         --repo EtherosGroup/EhBrowser --allow-publish
+#   建立后靠 OIDC 临时凭证发布，自动带上 provenance 签名，不需要长期 token。
 #   （另一条路是传统 Token：仓库密钥 NPM_TOKEN + 放开下面 NODE_AUTH_TOKEN 那行。）
 #
 # 演练：手动触发时将 dry-run 保持 true，只查看打包结果，不实际发布。

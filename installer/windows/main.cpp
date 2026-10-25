@@ -31,7 +31,7 @@ constexpr DWORD kWin10Build = 10240;
 constexpr DWORD kWin11Build = 22000;
 
 constexpr const char* kInstallerVersion = "1.3.0";
-constexpr const wchar_t* kNpmPackage = L"ehbrowser@latest";
+constexpr const wchar_t* kNpmPackage = L"@etheros/ehbrowser@latest";
 constexpr const wchar_t* kNodeDownloadPage = L"https://nodejs.org/";
 
 /** 隐藏启动器在安装器里的资源名（见 installer.rc.in），装完后释放到 npm 全局目录 */
@@ -80,7 +80,7 @@ void PrintHelp() {
         "流程：\n"
         "  1) 系统版本低于 Windows 10 -> 判定不支持并退出\n"
         "  2) 未检测到 Node.js >= 22 -> 询问是否安装、装到哪个目录\n"
-        "  3) 执行 npm install -g ehbrowser@latest\n"
+        "  3) 执行 npm install -g @etheros/ehbrowser@latest\n"
         "  4) 询问是否创建桌面与开始菜单快捷方式（默认创建）\n"
         "\n"
         "快捷方式指向一个没有控制台窗口的启动器（ehbrowser-launcher.exe）：它把客户端\n"
@@ -1016,7 +1016,8 @@ std::optional<std::wstring> QueryNpmGlobalPrefix(const NpmPaths& p) {
 }
 
 std::optional<std::string> ReadEhBrowserInstalledVersion(const std::wstring& prefix) {
-    std::wstring pkg = JoinPath(JoinPath(prefix, L"node_modules\\ehbrowser"), L"package.json");
+    // npm 全局安装时按 scope 落到 node_modules/@etheros/ehbrowser
+    std::wstring pkg = JoinPath(JoinPath(prefix, L"node_modules\\@etheros\\ehbrowser"), L"package.json");
     HANDLE h = CreateFileW(pkg.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return std::nullopt;

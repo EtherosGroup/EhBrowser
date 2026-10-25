@@ -49,9 +49,11 @@ Windows 上不想自己装 Node.js 的话，用[方式三](#方式三windows-安
 ### 方式一：npm 全局安装
 
 ```bash
-npm install -g ehbrowser
+npm install -g @etheros/ehbrowser
 ehbrowser
 ```
+
+1.7.3 起包名是 `@etheros/ehbrowser`（旧的 `ehbrowser` 停在 1.7.2）；装好后的命令仍是 `ehbrowser`。
 
 首次运行创建配置目录与默认配置文件，并调用系统默认程序打开界面地址。
 
@@ -102,24 +104,24 @@ npm start -- --no-open       # 不打开浏览器
 
 1. 检查系统版本，低于 Windows 10（build 10240）直接退出，不做任何修改。
 2. 检查 Node.js：大版本 ≥ 22 就直接用（22.18.0 以下会警告「可能不够新」但继续）；没装或大版本低于 22 则询问是否由它下载并静默安装官方 MSI（取 nodejs.org 上最新的 v22.x；提权时默认装到 `C:\Program Files\nodejs`，非管理员时默认 `%LOCALAPPDATA%\Programs\nodejs`，都可改目录）。这一步通常需要管理员权限，非管理员运行时它会先问要不要提权重启。
-3. 执行 `npm install -g ehbrowser@latest`，装完打印 `ehbrowser` 的位置，以及新开终端后怎么启动。
+3. 执行 `npm install -g @etheros/ehbrowser@latest`，装完打印 `ehbrowser` 的位置，以及新开终端后怎么启动。
 4. 询问是否在桌面和开始菜单各建一个 `EhBrowser` 快捷方式（默认建）。快捷方式指向 [启动器](#windows-安装器installerwindows)：双击后浏览器直接打开界面，不会闪出命令行窗口，通知区域还会多一个托盘图标。
 
 它是命令行程序，结束时停住等按空格再关窗口，方便看输出。参数：
 
 ```bat
-EhBrowser-1.3.0-installer.exe -y                    :: 全部取默认值，不询问（无人值守用）
-EhBrowser-1.3.0-installer.exe --check               :: 只检查系统版本与 Node.js，不做任何修改
-EhBrowser-1.3.0-installer.exe --dry-run             :: 只打印将要执行的命令，不下载也不安装
-EhBrowser-1.3.0-installer.exe --node-dir D:\nodejs  :: 指定 Node.js 的安装目录
-EhBrowser-1.3.0-installer.exe --no-shortcuts        :: 不建快捷方式（--shortcuts 则跳过询问直接建）
+EhBrowser-1.7.3-installer.exe -y                    :: 全部取默认值，不询问（无人值守用）
+EhBrowser-1.7.3-installer.exe --check               :: 只检查系统版本与 Node.js，不做任何修改
+EhBrowser-1.7.3-installer.exe --dry-run             :: 只打印将要执行的命令，不下载也不安装
+EhBrowser-1.7.3-installer.exe --node-dir D:\nodejs  :: 指定 Node.js 的安装目录
+EhBrowser-1.7.3-installer.exe --no-shortcuts        :: 不建快捷方式（--shortcuts 则跳过询问直接建）
 ```
 
 退出码：`0` 成功、`1` 参数错误、`2` 系统版本不支持、`3` 用户取消、`4` Node.js 安装失败、`5` ehbrowser 安装失败。快捷方式没建成不会把退出码变成非 0（应用本身已经装好了），但会在输出里逐条报出原因。
 
 **托盘图标**：右键菜单是「打开浏览器 / 查看日志 / 重启客户端 / 关闭客户端」，左键单击直接打开界面。再双击一次快捷方式不会起第二个客户端，只是请托盘把界面调出来。「关闭客户端」连托盘一起退出，也可以从界面里的「关闭服务」关（那样托盘会跟着收摊）。启动失败时（比如已经有一个在跑、端口被占）会弹消息框说明原因，客户端本来要打印到控制台的东西写在 `%LOCALAPPDATA%\ehbrowser\launcher.log`（跨次启动追加，超过 1 MiB 时清空）。
 
-三点提醒：安装器没有代码签名，SmartScreen 可能先拦一下（「更多信息」→「仍要运行」）；它装的始终是 `ehbrowser@latest`，旧版安装器也会装到最新版，要固定版本就自己执行 `npm install -g ehbrowser@<版本>`；卸载用 `npm uninstall -g ehbrowser`，桌面与开始菜单那两个快捷方式要自己删。源码在 [`installer/windows/`](installer/windows)，可以自己看或自己编。
+三点提醒：安装器没有代码签名，SmartScreen 可能先拦一下（「更多信息」→「仍要运行」）；它装的始终是 `@etheros/ehbrowser@latest`，旧版安装器也会装到最新版，要固定版本就自己执行 `npm install -g @etheros/ehbrowser@<版本>`；卸载用 `npm uninstall -g @etheros/ehbrowser`，桌面与开始菜单那两个快捷方式要自己删。源码在 [`installer/windows/`](installer/windows)，可以自己看或自己编。
 
 ## 使用
 
@@ -635,11 +637,11 @@ git push origin HEAD --tags      # 推当前分支与标签；标签会触发 .g
 一个标签会触发**两条工作流，互不依赖**：
 
 - `release.yml`：两个构建 job 并行，最后由一个 release job 汇总发版。便携包那条在 ubuntu-24.04 上跑：`npm ci` -> `npm run typecheck` -> 核对标签与 `package.json` 的版本是否一致（不一致就早失败，避免附件名与包版本不一致）-> `npm run release:portable` -> 把 zip 传成 workflow artifact。安装器那条在 windows-2025（当前即 VS 2026 镜像）上跑：同样的版本核对 -> `cmake --preset x64-Release` -> `cmake --build --preset x64-Release` -> 跑一次 `--help` 冒烟测试 -> 把 exe 改名为 `EhBrowser-<版本>-installer.exe` 后传成 workflow artifact。release job 等两个构建都成功，从 artifact 取回两个产物，用 `gh` 建 Release（标题取标签名，说明用 GitHub 自动汇总）并作为附件上传。只用仓库自带的 `GITHUB_TOKEN`，不需要密钥。同一标签重复推送时附件改为覆盖上传，可重入。
-- `publish-npm.yml`：同样的构建与核对，然后把这一版发到 npm（`npm publish --provenance --access public`），用 Trusted Publishing 的 OIDC 临时凭证。它先查该版本是否已经在 npm 上，已发过就跳过，因此重复推标签不会多出一条失败记录。
+- `publish-npm.yml`：同样的构建与核对，然后把这一版发到 npm（`npm publish --provenance --access public`，包名 `@etheros/ehbrowser`），用 Trusted Publishing 的 OIDC 临时凭证。它先查该版本是否已经在 npm 上，已发过就跳过，因此重复推标签不会多出一条失败记录。
 
 两个构建各传 artifact、再由第三个 job 汇总，是因为安装器只能在 Windows 上用 MSVC 编，而便携包适合在 Linux 上打（`portable.mjs` 按 unix 的 mode 位记录 `启动.sh` 的可执行位）：分开跑能并行，且同一时刻只有一个 job 会碰 Release——两个 job 同时 `gh release create` 同一个标签会撞车（先到的建成功，后到的 422）。两个构建都成功才发版，因此不会留下只有一半附件的 Release。
 
-两条分开跑而不是让 `release.yml` 调用 `publish-npm.yml`，是因为 **npm 的 Trusted Publisher 认的是触发这次运行的入口工作流**，不是真正执行发布的那一个。实测：用 `uses: ./.github/workflows/publish-npm.yml` 调用时，OIDC 拿得到、provenance 也签名上传了，但 registry 回 `404 Not Found - PUT https://registry.npmjs.org/ehbrowser`；直接跑 `publish-npm.yml`（手动或推标签）就成功（1.0.1、1.0.2 都是这么发的）。要让被调用的形式也成立，得去 npm 侧把工作流文件名改成 `release.yml`，不如让这个工作流自己盯标签。
+两条分开跑而不是让 `release.yml` 调用 `publish-npm.yml`，是因为 **npm 的 Trusted Publisher 认的是触发这次运行的入口工作流**，不是真正执行发布的那一个。实测：用 `uses: ./.github/workflows/publish-npm.yml` 调用时，OIDC 拿得到、provenance 也签名上传了，但 registry 回 `404 Not Found - PUT https://registry.npmjs.org/ehbrowser`（当时包名还没加 `@etheros` scope）；直接跑 `publish-npm.yml`（手动或推标签）就成功（1.0.1、1.0.2 都是这么发的）。要让被调用的形式也成立，得去 npm 侧把工作流文件名改成 `release.yml`，不如让这个工作流自己盯标签。
 
 手动触发走演练路径（在 Actions 页面点 Run workflow，或执行 `gh workflow run release.yml`）：同样构建打包，但只把 zip 与 exe 传成 workflow artifact（默认保留 90 天），不建 Release、不打标签、也不发 npm。正式发版前验证产物时使用这条路径。
 
@@ -675,8 +677,8 @@ EhBrowser-1.0.0/
 
     产物在 `installer/windows/out/build/x64-Release/`：安装器是 `bin/Release/ehbrowser-installer.exe`，启动器是 `bin/launcher/ehbrowser-launcher.exe`（`out/` 已进 `.gitignore`）。
 
-- 安装器做四件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g ehbrowser@latest`、按需创建快捷方式。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
-- 装的始终是 `ehbrowser@latest`：安装器自己不绑定版本，因此旧版安装器也会装到最新版。
+- 安装器做四件事：检查 Windows 版本（低于 10 build 10240 直接退出）、检查并按需安装 Node.js（大版本 ≥ 22 即可用，缺则下载 nodejs.org 上最新的 v22.x MSI 静默安装，需要时会提权）、执行 `npm install -g @etheros/ehbrowser@latest`、按需创建快捷方式。参数与退出码见[方式三](#方式三windows-安装器从-release-下载)。
+- 装的始终是 `@etheros/ehbrowser@latest`：安装器自己不绑定版本，因此旧版安装器也会装到最新版。
 - **启动器**（`launcher.cpp`）是个子系统为 WINDOWS 的小程序，自己没有控制台：它用 `CreateProcessW` + `CREATE_NO_WINDOW` 起 `cmd.exe` 跑 `ehbrowser`，所以双击快捷方式不会闪命令行窗口。快捷方式指向它、参数是 `ehbrowser`，图标位置也填它自己（`.lnk` 的 `IconLocation` 就是 `ehbrowser-launcher.exe`）。要隐藏窗口只能这么做：`.lnk` 的「运行方式」只有常规/最大化/最小化，没有隐藏。
 - **图标**（`ehbrowser.ico`）：桌面快捷方式、开始菜单快捷方式、通知区域、任务管理器四处是同一个图标。`ehbrowser.ico` 里的 16/24/32/48/64 是传统 32bpp DIB、128/256 是 PNG 压缩，**背景透明**（不带那层深色底，落在什么底色上就贴什么底色）；每一档都由同目录的 `ehbrowser-icon.svg`（源设计在 `icons/loopback-privacy`）按矢量直接渲染，不做降采样——预乘 alpha 的空间里重采样会振铃，还原 alpha 时那些过冲被放大成白色噪点（实测 LANCZOS 在 256px 会留下约 800 个可见白点，逐尺寸直出是 0）。16×16 下那枚薄荷绿的点仍在。编进哪儿由两个资源模板分工：`launcher.rc.in` 把图标挂到启动器上，托盘由 `LoadAppIcon` 按 `SM_CXSMICON` 从自己的资源里取（DPI 缩放交给系统，`LoadImage` 拿到的句柄退出时 `DestroyIcon`）；`installer.rc.in` 再给安装器自己也挂一份，桌面上那个 `installer.exe` 因此不再是一张白纸。以前是「图标取 `node.exe`」，现在整条链上不再依赖 Node 的图标资源。
 - 藏起来之后客户端就没人管得了，所以启动器常驻通知区域：右键菜单「打开浏览器 / 查看日志 / 重启客户端 / 关闭客户端」，左键单击直接打开界面。它按窗口类名做单实例——托盘在跑时再双击快捷方式只是请托盘打开浏览器，不会起第二个客户端。
@@ -688,17 +690,27 @@ EhBrowser-1.0.0/
 - 启动器整个嵌在安装器的资源里（`installer.rc.in` 由 `configure_file` 生成，`EHBROWSER_LAUNCHER` 这个名字的资源），装完后释放到 npm 全局目录，所以 **Release 附件仍然只有一个 exe**。它把子进程的输出写进 `%LOCALAPPDATA%\ehbrowser\launcher.log`（跨次启动追加，超过 1 MiB 时清空），几秒内失败退出时用 MessageBox 把日志尾巴弹出来——隐藏模式最怕静默失败。
 - 快捷方式由 `IShellLinkW` 直接生成，桌面用 `FOLDERID_Desktop`、开始菜单用 `FOLDERID_Programs`，因此 OneDrive 那类桌面重定向也能跟对目录。
 - CI 由 `release.yml` 的 `installer` job 在 `windows-2025` 上构建，产物命名为 `EhBrowser-<版本>-installer.exe` 作为 Release 附件。没有代码签名。
-- 卸载：`npm uninstall -g ehbrowser` 不会动快捷方式与启动器，要自己删桌面/开始菜单的 `EhBrowser.lnk` 和 npm 全局目录里的 `ehbrowser-launcher.exe`。
+- 卸载：`npm uninstall -g @etheros/ehbrowser` 不会动快捷方式与启动器，要自己删桌面/开始菜单的 `EhBrowser.lnk` 和 npm 全局目录里的 `ehbrowser-launcher.exe`。
 
 ### 发到 npm
 
-`.github/workflows/publish-npm.yml` 有两种入口：推 `v*` 标签时自动跑（直接发布），或者手动触发——在 Actions 页面点 Run workflow / `gh workflow run publish-npm.yml`，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）；想手动补发某一版就选分支/标签（`ref`）并把 `dry-run` 关掉。
-
-发布用 npm 的 Trusted Publishing：npmjs.com -> 你的包 -> Settings -> Trusted Publisher -> GitHub Actions，填仓库 `EtherosGroup/EhBrowser` 与工作流文件名 `publish-npm.yml`（当前用的就是这条，1.0.1 是这么发出去的，带 provenance 签名）。不需要长期 token；npm、Node 的版本要求（npm ≥ 11.5.1）由 `node-version: 24` 满足。也可以在本地手动发布：
+包名是 `@etheros/ehbrowser`。1.7.3 起从旧的 `ehbrowser` 迁到 `@etheros` scope，旧包停在 1.7.2、不再更新。发布用 npm 的 Trusted Publishing：包首次发布必须带发布 token 在本地发一次（CI 走 OIDC 时包必须已经存在），之后把信任关系指到本仓库与工作流：
 
 ```bash
-npm pack --dry-run          # 先看清单：应当只有 dist/ 与 README、LICENSE、package.json
-npm publish --access public # prepublishOnly 会自动跑 npm run build
+npm trust github @etheros/ehbrowser --file publish-npm.yml --repo EtherosGroup/EhBrowser --allow-publish
+npm trust list @etheros/ehbrowser   # 核对
+```
+
+不需要长期 token；npm、Node 的版本要求（npm ≥ 11.5.1）由 `node-version: 24` 满足。
+
+`.github/workflows/publish-npm.yml` 有两种入口：推 `v*` 标签时自动跑（直接发布），或者手动触发——在 Actions 页面点 Run workflow / `gh workflow run publish-npm.yml`，输入框中 `dry-run` 保持 `true` 时为纯演练（`npm pack --dry-run` + `npm publish --dry-run`）；想手动补发某一版就选分支/标签（`ref`）并把 `dry-run` 关掉。
+
+也可以在本地手动发布（1.7.3 的首次发布就是这么发的，带发布 token 的账号需要有 `@etheros` 权限）：
+
+```bash
+npm login                    # 登入有 @etheros 权限的账号
+npm pack --dry-run           # 先看清单：应当只有 dist/ 与 README、LICENSE、package.json
+npm publish --access public  # prepublishOnly 会自动跑 npm run build
 ```
 
 ## 当前状态
